@@ -1,0 +1,14 @@
+# 📘 Diccionario de datos de `shapes`
+
+A continuación se incluye un resumen para referencia rápida:
+
+| Columna | Tipo de Dato (Pandas) | Descripción de Negocio | Rol en el Modelo / Importancia |
+| :--- | :--- | :--- | :--- |
+| **`shape_id`** | `String` a `string[pyarrow]` | Identificador alfanumérico único del trazado geométrico que describe el recorrido secuencial de una línea comercial. | **Clave Foránea**. Indexador principal que vincula relacionalmente los itinerarios espaciales con los viajes activos en la tabla `trips`. |
+| **`shape_pt_lat`** | `Float64` a `float32[pyarrow]` | Coordenada de latitud geográfica expresada en el sistema de referencia decimal estándar (`WGS84`) para un nodo del trazado. | **Variable Espacial**. Predictor raíz obligatorio para reconstruir vectorialmente la trayectoria física de los autobuses sobre el callejero urbano. |
+| **`shape_pt_lon`** | `Float64` a `float32[pyarrow]` | Coordenada de longitud geográfica expresada en el sistema de referencia decimal estándar (`WGS84`) para un nodo del trazado. | **Variable Espacial**. Predictor raíz obligatorio para reconstruir vectorialmente la trayectoria física de los autobuses sobre el callejero urbano. |
+| **`shape_pt_sequence`** | `Int64` a `int32[pyarrow]` | Valor entero incremental que parametriza el orden posicional estricto de sucesión de los nodos geográficos del trazado. | **Indexador Secuencial**. Variable topológica que determina la dirección de la marcha y previene la distorsión lineal de las rutas al unirlas en memoria. |
+| **`shape_dist_traveled`** | `Int64` a `int32[pyarrow]` | Distancia métrica acumulada en metros recorrida por la flota desde la cabecera origen de la línea hasta el nodo geográfico actual. | **Variable Métrica**. Factor cuantitativo precalculado de origen; actúa como el predictor raíz para calcular longitudes y estimar retrasos entre tramos. |
+| **`delta_dist_metros`** | `Nueva` a `int32[pyarrow]` | Distancia métrica diferencial que separa a cada nodo del trazado de su punto inmediatamente anterior dentro de la secuencia. | **Feature Engineering**. Variable continua base; audita la granularidad geométrica de los tramos viales y detecta saltos atípicos en el catastro. |
+| **`indice_sinuosidad`** | `Nueva` a `float32[pyarrow]` | Coeficiente topológico que mide el grado de serpenteo o quiebre de la ruta en la red de calles frente a su vector de línea recta. | **Feature Engineering / Predictora**. Contexto de fricción crítico: a mayor sinuosidad, mayor exposición a giros cerrados y riesgo de demora. |
+| **`puntos_por_km`** | `Nueva` a `float32[pyarrow]` | Volumen de nodos de control geográfico provistos por la EMT para parametrizar el recorrido por cada kilómetro de línea comercial. | **Feature Engineering / Proxy de Complejidad**. Delata tramos conflictivos (rotondas, cruces del casco histórico) donde el muestreo se intensifica. |

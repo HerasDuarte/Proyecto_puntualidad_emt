@@ -1,0 +1,14 @@
+# 📘 Diccionario de datos de `trips`
+
+A continuación se incluye un resumen para referencia rápida:
+
+| Columna | Tipo de Dato (Pandas) | Descripción de Negocio | Rol en el Modelo / Importancia |
+| :--- | :--- | :--- | :--- |
+| **`route_id`** | `String` a `string[pyarrow]` | Clave foránea alfanumérica que vincula el viaje con su línea comercial correspondiente en el catálogo `routes`. | **Clave Foránea**. Descriptor de línea; clave para heredar el régimen horario y el tipo de ruta (regular, lanzadera, búho). |
+| **`service_id`** | `String` a `string[pyarrow]` | Clave foránea alfabética que asocia el viaje con un patrón semanal de operación específico en las tablas `calendar` y `calendar_dates`. | **Clave Foránea**. Descriptor estacional; determina si el viaje responde a un perfil de tráfico laborable, de sábado o festivo. |
+| **`trip_id`** | `String` a `string[pyarrow]` | Identificador unívoco absoluto generado por la EMT de Madrid para parametrizar una expedición o viaje individual en una franja horaria. | **Clave Primaria**. El indexador dinámico raíz del proyecto; enlaza relacionalmente con la malla horaria (`stop_times`) y las frecuencias (`frequencies`). |
+| **`trip_headsign`** | `String` a `string[pyarrow]` | Texto descriptivo oficial expuesto en los letreros frontales del autobús que indica la terminal de destino del viaje (e.g., cabecera o vuelta). | **Metadato Cualitativo**. Variable de apoyo; útil para la auditoría de nombres e inspecciones de las cabeceras de la flota. |
+| **`direction_id`** | `Int64` a `int8[pyarrow]` | Código binario estandarizado por el GTFS que discrimina el sentido de marcha de la expedición (`0`: Trayecto de Ida, `1`: Trayecto de Vuelta). | **Indicador de Sentido**. Variable categórica predictora; permite al modelo aislar las asimetrías de congestión según la dirección del flujo. |
+| **`block_id`** | `String` a `string[pyarrow]` | Identificador del bloque o turno de trabajo continuo asignado a un vehículo físico de la flota para encadenar múltiples viajes seguidos. | **Descriptor de Rotación**. Variable predictora de arrastre; proxy para el seguimiento de la asignación del vehículo en cascada. |
+| **`shape_id`** | `String` a `string[pyarrow]` | Clave foránea alfanumérica que enlaza el viaje con su trazado continuo de coordenadas geográficas exactas en la tabla `shapes`. | **Clave Foránea**. Descriptor espacial; hereda los mapas vectoriales del recorrido circulatorio. |
+| **`volumen_viajes_bloque`** | `Nueva` a `int16[pyarrow]` | Variable sintética continua generada mediante agregación que contabiliza el total de expediciones consecutivas asignadas a un mismo turno físico (`block_id`). | **Predictor de Fatiga Avanzado**. Variable de ingeniería de características; proxy crítico para modelar el arrastre de retrasos en cadena. |

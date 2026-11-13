@@ -1,0 +1,20 @@
+# 📘 Diccionario de datos de `stop_times`
+
+A continuación se incluye un resumen para referencia rápida:
+
+| Columna | Tipo de Dato (Polars) | Descripción de Negocio | Rol en el Modelo / Importancia |
+| :--- | :--- | :--- | :--- |
+| **`trip_id`** | `String` a `pl.String` | Identificador único de la expedición o viaje individual del autobús generado por la EMT de Madrid. | **Clave Foránea**. Conecta con `trips_limpio.csv` para estructurar y segmentar la secuencia temporal de paso por viaje. |
+| **`arrival_time`** | `String` a `pl.String` | Hora teórica y programada de llegada del autobús a una marquesina específica (`HH:MM:SS`). | **Variable Objetivo / Predictora**. Raíz cronológica fundamental para computar el retraso real y la velocidad comercial. |
+| **`departure_time`** | `String` a `pl.String` | Hora teórica y programada de salida del autobús desde la marquesina específica (`HH:MM:SS`). | **Variable Operativa**. Mapea el tiempo de regulación en paradas clave; marca formalmente el reinicio de la marcha del vehículo. |
+| **`stop_id`** | `String` a `pl.String` | Identificador único del poste o marquesina física de la parada en la red. | **Clave Foránea**. Conecta con `stops_limpio.csv` para heredar las coordenadas espaciales y el entorno geográfico. |
+| **`stop_sequence`** | `Int64` a `pl.Int16` | Número entero secuencial que indica el orden correlativo de la parada dentro del itinerario del viaje (`1, 2, 3...`). | **Variable Operativa**. Comprimida a 2 bytes para optimizar RAM; vital para interpretar la progresión física. |
+| **`stop_headsign`** | `String` a `pl.String` | Texto cualitativo expuesto en los letreros frontales en paradas intermedias si difiere del destino general del viaje. | **Variable Descartada**. Columna con nulidad absoluta (100%) en la EMT; auditada en el EDA y purgada de memoria. |
+| **`pickup_type`** | `Int64` a `pl.Int8` | Código binario que regula si se permite la subida ordinaria de pasajeros en la parada (`0`: Sí, `1`: No). | **Variable Descartada**. Columna con nulidad absoluta (100%) en la EMT; auditada en el EDA y purgada de memoria. |
+| **`drop_off_type`** | `Int64` a `pl.Int8` | Código binario que regula si se permite la bajada ordinaria de pasajeros en la parada (`0`: Sí, `1`: No). | **Variable Descartada**. Columna con nulidad absoluta (100%) en la EMT; auditada en el EDA y purgada de memoria. |
+| **`shape_dist_traveled`** | `Float64` a `pl.Float32` | Distancia métrica acumulada en metros que el autobús ha recorrido desde la cabecera original hasta la parada actual. | **Variable Predictora**. Precisión decimal eficiente; esencial para modelar la fatiga de la ruta y estimar intervalos. |
+| **`tiempo_tramo_teorico_seg`** | `Nueva` a `pl.Int64` | Cantidad de segundos programados por la EMT para completar el trayecto entre la parada inmediatamente anterior y la actual. | **Feature Engineering**. Descriptor cronológico continuo para modelar la velocidad teórica del tramo. |
+| **`distancia_tramo_m`** | `Nueva` a `pl.Float32` | Delta físico o distancia neta en metros recorrida por el vehículo entre el poste anterior y el actual. | **Feature Engineering**. Descriptor espacial continuo que mide la escala longitudinal de los eslabones. |
+| **`hora_llegada_decimal`** | `Nueva` a `pl.Float64` | Transformación fraccionada continua de los segundos absolutos de arribo calculados desde la medianoche (`arrival_time_seg / 3600.0`). | **Feature Engineering**. Descriptor de estacionalidad continua para modelar horas punta sin cortes discretos. |
+| **`progreso_viaje_pct`** | `Nueva` a `pl.Float32` | Factor de avance relativo que mide el porcentaje del recorrido completado por el autobús (`stop_sequence / max_sequence_viaje`). | **Feature Engineering**. Factor cinemático que opera como proxy del efecto arrastre a lo largo del itinerario. |
+| **`densidad_paradas_acumuladas`** | `Nueva` a `pl.Float32` | Tasa continua que evalúa el número de marquesinas programadas por cada kilómetro lineal recorrido hasta ese punto del viaje. | **Feature Engineering**. Descriptor topológico para identificar embudos urbanos y grandes intercambiadores. |

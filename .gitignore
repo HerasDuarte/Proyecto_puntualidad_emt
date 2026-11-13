@@ -1,0 +1,35 @@
+# Python y Entornos Virtuales
+__pycache__/
+*.py[cod]
+*$py.class
+env/
+venv/
+.venv/
+
+# Datos pesados (se regeneran con scripts/pipeline_limpieza.py y scripts/construir_maestro_gtfs.py)
+data/raw/
+data/processed/*.csv
+data/processed/*.parquet
+backups/
+
+# Credenciales y variables de entorno secretas
+.env
+.env.local
+*.key
+
+# Notas internas de borrador
+docs/pizarra.txt
+
+# Testing, Logs y Modelos entrenados pesados
+.pytest_cache/
+logs/*.log
+models/*.pkl
+models/*.joblib
+models/*.cbm
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Sistema Operativo
+.DS_Store
+Thumbs.db

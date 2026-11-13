@@ -1,0 +1,18 @@
+# 📘 Diccionario de datos de `routes`
+
+A continuación se incluye un resumen para referencia rápida:
+
+| Columna | Tipo de Dato (Pandas) | Descripción de Negocio | Rol en el Modelo / Importancia |
+| :--- | :--- | :--- | :--- |
+| **`route_id`** | `String` a `string[pyarrow]` | Identificador alfanumérico único e interno de la línea comercial asignado por el consorcio (e.g., `001`, `203`). | **Clave Primaria**. Indexador principal para mapear la red y realizar cruces relacionales con `trips`. |
+| **`agency_id`** | `String` a `string[pyarrow]` | Identificador de la agencia operadora del servicio (EMT Madrid). | **Variable Descartada**. Se elimina en la fase de optimización debido a que es una constante redundante sin varianza. |
+| **`route_short_name`** | `String` a `string[pyarrow]` | Código corto comercial visible para el usuario en el autobús y marquesinas (e.g., `1`, `E1`, `N25`). | **Variable Predictora**. Variable de texto raíz utilizada para extraer las características del régimen horario. |
+| **`route_long_name`** | `String` a `string[pyarrow]` | Nombre descriptivo largo oficial que define el itinerario comercial uniendo los dos extremos (e.g., `CRISTO REY - PROSPERIDAD`). | **Variable Descriptiva**. Variable compuesta raíz utilizada para el desglose e ingeniería de terminales físicas. |
+| **`route_desc`** | `Float64` a `float64` | Descripción extendida u observaciones adicionales sobre las particularidades de la línea. | **Variable Descartada**. Se elimina por presentar nulidad absoluta (100% nulos) sin valor analítico. |
+| **`route_type`** | `Int64` a `int64` | Código numérico que define el modo de transporte según el estándar GTFS (el valor `3` identifica autobús urbano). | **Variable Descartada**. Se elimina al ser una constante homogénea para el 100% de la flota de superficie. |
+| **`route_url`** | `String` a `string[pyarrow]` | Enlace web oficial a los horarios, tarifas y desvíos específicos de la línea en el portal de la EMT. | **Variable Descartada**. Se elimina al tratarse de metadatos externos irrelevantes para el algoritmo. |
+| **`route_color`** | `String` a `string[pyarrow]` | Código hexadecimal del color corporativo asignado para la representación en planos e interfaces (e.g., `0056B3`). | **Variable Descartada**. Se elimina por tratarse de un atributo puramente estético de representación gráfica. |
+| **`route_text_color`** | `String` a `string[pyarrow]` | Código hexadecimal del color para el texto sobre el fondo de la línea en interfaces gráficas. | **Variable Descartada**. Se elimina por tratarse de un atributo puramente estético sin aporte predictivo. |
+| **`cabecera_ruta`** | `Nueva` a `string[pyarrow]` | Punto geográfico, estación o terminal física donde nace formalmente el recorrido del trayecto (e.g., `PLAZA DE CIBELES`). | **Feature Engineering**. Variable operativa clave para agrupar e identificar los nudos masivos de inyección de la flota. |
+| **`destino_ruta`** | `Nueva` a `string[pyarrow]` | Punto geográfico o terminal física donde finaliza formalmente el recorrido del trayecto (e.g., `VILLAVERDE ALTO`). | **Feature Engineering**. Variable operativa clave para medir el nivel de dispersión capilar y la distribución en barrios residenciales. |
+| **`regimen_horario`** | `Nueva` a `string[pyarrow]` | Clasificación operativa de la línea según su ventana temporal de explotación (`Servicio Diurno`, `Servicio Nocturno (Búho)` o `Servicio 24 Horas`). | **Feature Engineering**. Variable predictora crítica que inyecta al modelo el contexto de fricción del tráfico por franja. |
