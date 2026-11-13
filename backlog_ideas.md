@@ -65,3 +65,6 @@ Líneas de la EMT de Madrid como la 704 o la 718 sufren de una escasez severa de
 
 ### Propuesta de Implementación Técnica:
 Para blindar la estabilidad de las predicciones en líneas de cobertura mínima, se descarta el enfoque de modelos unilineales compartimentados. En su lugar, el pipeline implementará un **Algoritmo Global de Árboles de Decisión Generalizados (e.g., LightGBM o XGBoost)**. Al inyectar la variable de ingeniería `volumen_viajes_bloque` junto con los metadatos cruzados de `routes` y `shapes`, las líneas masivas de alta frecuencia transferirán el aprendizaje de las leyes generales del callejero madrileño hacia las rutas residuales, garantizando estimaciones de puntualidad estables para la totalidad del catálogo.
+
+## 📌 [IDE-005] Reproducibilidad e Ingesta Automatizada
+- [ ] **Script de descarga automática del catálogo GTFS (`scripts/descargar_gtfs.py`):** Crear un script que descargue automáticamente el paquete oficial `gtfs_emt.zip` desde el portal Open Data de la EMT de Madrid y lo descomprima en `data/raw/gtfs/`, permitiendo reproducir el pipeline completo desde cero tras clonar el repositorio sin subir ficheros pesados a GitHub.
