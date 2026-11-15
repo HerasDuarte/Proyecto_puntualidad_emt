@@ -45,12 +45,14 @@ def clasificar_regimen_horario(codigo_corto):
 def extraer_calle_principal(nombre_parada):
     """
     Aísla la arteria vial principal del literal comercial de la parada de la EMT
-    mediante expresiones regulares (Regex), eliminando cruces secundarios.
+    mediante expresiones regulares (Regex), eliminando cruces secundarios y portales.
     """
-    txt = str(nombre_parada).strip().upper()
-    txt = re.sub(r'^(AV\.|Pº|CALLE|PLAZA|CTRA\.|VÍA|GTA\.)\s*', '', txt)
-    partes = re.split(r'[-/,]', txt)
-    return partes[0].strip()
+    txt = str(nombre_parada).strip()
+    partes = re.split(r'\s*-\s*|\s+AND\s+|\s+Y\s+', txt, maxsplit=1)
+    calle = partes[0].strip()
+    calle = re.sub(r'\s*\d+$', '', calle).strip()
+    return calle
+
 
 def categorizar_tramos(total_marquesinas):
     """

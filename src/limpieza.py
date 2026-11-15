@@ -2,7 +2,7 @@ import logging
 import os
 import pandas as pd
 from datetime import datetime
-from src.utils import punto_en_poligono, clasificar_regimen_horario
+from src.utils import punto_en_poligono, clasificar_regimen_horario,extraer_calle_principal
 import numpy as np
 import geopandas as gpd
 from shapely.geometry import Point
@@ -118,18 +118,17 @@ def limpiar_routes(df_routes, output_dir=None):
 
     return df_limpio
 
-
 def limpiar_stops(df_stops, output_dir=None):
     """
     Sanea, audita y valida estructuralmente el catálogo de paradas de la EMT.
     - Elimina duplicados absolutos en bruto.
     - Descarta variables muertas constantes o nulas (zone_id, parent_station, etc).
     - Normaliza a mayúsculas estrictas los nombres comerciales de las marquesinas.
-    - FEATURE ENGINEERING: Extrae de forma vectorizada el eje vial por expresiones regulares.
+    - FEATURE ENGINEERING: Extrae el eje vial centralizado mediante src.utils.extraer_calle_principal.
     - FEATURE ENGINEERING: Clasificación de alta fidelidad basada en el perímetro 
       oficial de la M-30 cargado de forma dinámica.
     """
- 
+
     df = df_stops.copy()
 
     # 1. Depuración defensiva de redundancias absolutas
@@ -152,15 +151,11 @@ def limpiar_stops(df_stops, output_dir=None):
     if 'stop_lon' in df.columns:
         df['stop_lon'] = df['stop_lon'].astype("float32[pyarrow]")
 
-    # 4. MINERÍA DE TEXTO: Extracción del eje vial principal mediante expresiones regulares
+    # 4. MINERÍA DE TEXTO: Extracción centralizada del eje vial principal (DRY desde src.utils)
     if 'stop_name' in df.columns:
         df['calle_principal'] = (
             df['stop_name']
-            .str.split(r'\s*-\s*|\s+AND\s+|\s+Y\s+', n=1, regex=True)
-            .str.get(0)
-            .str.strip()
-            .str.replace(r'\s*\d+$', '', regex=True)
-            .str.strip()
+            .apply(extraer_calle_principal)
             .astype("string[pyarrow]")
         )
 
@@ -220,6 +215,7 @@ def limpiar_stops(df_stops, output_dir=None):
         logging.info("Control de calidad y atípicos de paradas correcto: El 100% de las marquesinas pasan limpias.")
 
     return df_limpio
+
 
 def limpiar_shapes(df_shapes, output_dir=None):
     """
