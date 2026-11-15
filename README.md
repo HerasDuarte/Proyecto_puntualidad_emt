@@ -6,7 +6,7 @@ Sistema de ingeniería de datos y aprendizaje automático (*Machine Learning*) d
 
 ## 🏗️ Arquitectura del Proyecto
 
-El repositorio sigue una estructura modular de ingeniería de software que separa estrictamente el laboratorio exploratorio (`notebooks/`) del motor de producción (`src/`), los scripts ejecutables (`scripts/`), los diccionarios de datos (`docs/`) y las pruebas automatizadas (`tests/`):
+El repositorio sigue una estructura modular de ingeniería de software que separa estrictamente el laboratorio exploratorio (`notebooks/`) del motor de producción (`src/`), los scripts ejecutables (`scripts/`), los artefactos visuales (`reports/`), los diccionarios de datos (`docs/`) y las pruebas automatizadas (`tests/`):
 
 ```text
 Proyecto_puntualidad_emt/
@@ -23,15 +23,21 @@ Proyecto_puntualidad_emt/
 │   ├── 07_stop_times_Dict.md
 │   └── 08_frequencies_Dict.md
 ├── notebooks/                     # Análisis Exploratorio de Datos (EDA) reproducible
-│   ├── 01_routes.ipynb
-│   ├── 02_stops.ipynb
-│   ├── 03_shapes.ipynb
-│   ├── 04_calendar.ipynb
-│   ├── 05_calendar_dates.ipynb
-│   ├── 06_trips.ipynb
-│   ├── 07_stop_times.ipynb
-│   └── 08_frequencies.ipynb
+│   ├── 01_EDA_routes.ipynb
+│   ├── 02_EDA_stops.ipynb
+│   ├── 03_EDA_shapes.ipynb
+│   ├── 04_EDA_calendar.ipynb
+│   ├── 05_EDA_calendar_dates.ipynb
+│   ├── 06_EDA_trips.ipynb
+│   ├── 07_EDA_stop_times.ipynb
+│   └── 08_EDA_frequencies.ipynb
+├── reports/                       # Cartografía exportada en PNG estático y HTML interactivo
+│   ├── mapa_paradas_emt.html
+│   ├── mapa_paradas_emt.png
+│   ├── visor_trazado_emt.html
+│   └── visor_trazado_emt.png
 ├── src/                           # Módulos reutilizables de producción
+│   ├── utils.py                   # Utilidades matemáticas, geodésicas (Haversine) y Regex
 │   ├── limpieza.py                # Motores de saneamiento, cuarentena y Feature Engineering
 │   └── consolidacion.py           # Ensamblaje relacional en Polars Lazy -> Parquet ZSTD
 ├── scripts/                       # Scripts ejecutables de línea de comandos
@@ -39,6 +45,8 @@ Proyecto_puntualidad_emt/
 │   └── construir_maestro_gtfs.py  # Genera la Tabla Analítica Maestra en formato Parquet
 ├── tests/                         # Suite de pruebas unitarias y de integración (pytest)
 │   └── test_pipeline.py
+├── backlog_ideas.md               # Hoja de ideas y mejoras futuras del sistema
+├── TODO.md                        # Checklist operativo de tareas previas a publicación
 ├── requirements.txt               # Dependencias fijadas del entorno virtual
 └── README.md
 ```
@@ -47,13 +55,13 @@ Proyecto_puntualidad_emt/
 
 ## 📊 Inventario de Datos Procesados y Tabla Maestra
 
-El pipeline de ingeniería procesa y valida **8 tablas relacionales** y las consolida en una única **Tabla Analítica Maestra** comprimida en formato columna (`Parquet ZSTD`). *(Nota: Los volúmenes de filas mostrados corresponden a la instantánea base auditada; el pipeline y los tests validan la cardinalidad de forma dinámica ante cualquier actualización del catálogo GTFS).*
+El pipeline de ingeniería procesa y valida **8 tablas relacionales** y las consolida en una única **Tabla Analítica Maestra** comprimida en formato columnar (`Parquet ZSTD`). *(Nota: Los volúmenes de filas mostrados corresponden a la instantánea base auditada; el pipeline y los tests validan la cardinalidad de forma dinámica ante cualquier actualización del catálogo GTFS).*
 
 | Tabla / Archivo Procesado | Motor | Filas Base | Columnas | Características Clave y Predictores Inyectados |
 | :--- | :--- | :---: | :---: | :--- |
 | **`routes_limpio.csv`** | Pandas + PyArrow | 236 | 6 | Rescate de líneas circulares (`C1`, `C2`), `cabecera_ruta`, `destino_ruta`, `regimen_horario`. |
-| **`stops_limpio.csv`** | Pandas + PyArrow | 4.928 | 8 | Coordenadas `WGS84`, `calle_principal` (Regex), contención espacial M-30 (`en_alta_densidad_real`). |
-| **`shapes_limpio.csv`** | Pandas + PyArrow | 193.643 | 8 | Trazados geométricos, `delta_dist_metros`, `indice_sinuosidad`, `puntos_por_km`. |
+| **`stops_limpio.csv`** | Pandas + PyArrow | 4.928 | 8 | Coordenadas `WGS84`, `calle_principal` (Regex centralizado), contención espacial M-30 (`en_alta_densidad_real`). |
+| **`shapes_limpio.csv`** | Pandas + PyArrow | 193.643 | 8 | Trazados geométricos, `delta_dist_metros`, `indice_sinuosidad` (Haversine), `puntos_por_km`. |
 | **`calendar_limpio.csv`** | Pandas + PyArrow | 5 | 10 | Patrones operativos semanales (`LA`, `SA`, `FE`) y ventanas de vigencia. |
 | **`calendar_dates_limpio.csv`** | Pandas + PyArrow | 19 | 3 | Excepciones de servicio, refuerzos especiales y días festivos. |
 | **`trips_limpio.csv`** | Pandas + PyArrow | 86.871 | 8 | Expediciones activas, rotación de turnos físicos (`block_id`) y `volumen_viajes_bloque`. |
@@ -94,7 +102,7 @@ pytest -v
 
 ## 🗺️ Hoja de Ruta (Roadmap)
 
-- [x] **Fase 1 — Auditoría Exploratoria (EDA):** Análisis forense, visualización corporativa y diccionarios de datos de las 8 tablas GTFS (`notebooks/01` a `08`).
-- [x] **Fase 2 — Ingeniería de Datos y Producción:** Pipeline híbrido (`PyArrow` + `Polars Lazy`), generación de `maestro_gtfs.parquet` y validación dinámica con `pytest`.
+- [x] **Fase 1 — Auditoría Exploratoria (EDA):** Análisis forense, visualización corporativa, cartografía estática/interactiva (`reports/`) y diccionarios de datos de las 8 tablas GTFS (`notebooks/01` a `08`).
+- [x] **Fase 2 — Ingeniería de Datos y Producción:** Pipeline híbrido (`PyArrow` + `Polars Lazy`), modularización DRY (`src/utils.py`), generación de `maestro_gtfs.parquet` y validación dinámica con `pytest`.
 - [ ] **Fase 3 — Ingesta en Tiempo Real (API MobilityLabs EMT):** Captura de tiempos reales de llegada en parada y cálculo de la variable objetivo (`retraso_real_seg`).
 - [ ] **Fase 4 — Modelado Predictivo y Evaluación:** Entrenamiento y optimización de modelos supervisados (`LightGBM` / `XGBoost`) para predicción de retrasos por tramo y franja horaria.
