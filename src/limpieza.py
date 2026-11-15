@@ -2,7 +2,7 @@ import logging
 import os
 import pandas as pd
 from datetime import datetime
-from src.utils import punto_en_poligono, clasificar_regimen_horario,extraer_calle_principal
+from src.utils import punto_en_poligono, clasificar_regimen_horario,extraer_calle_principal, calcular_distancia_haversine
 import numpy as np
 import geopandas as gpd
 from shapely.geometry import Point
@@ -216,14 +216,14 @@ def limpiar_stops(df_stops, output_dir=None):
 
     return df_limpio
 
-
 def limpiar_shapes(df_shapes, output_dir=None):
     """
     Sanea, audita, valida y enriquece vectorialmente el catálogo de trazados geométricos (EMT).
     - Elimina duplicados absolutos en bruto.
     - Normaliza tipos de datos y fuerza el ordenamiento estricto por secuencia.
     - FEATURE ENGINEERING: Inyecta métricas avanzadas de delta de metros inter-nodo, 
-      índice de sinuosidad y puntos por kilómetro a nivel de trayecto de forma vectorizada.
+      índice de sinuosidad y puntos por kilómetro a nivel de trayecto reutilizando
+      src.utils.calcular_distancia_haversine.
     - Filtra y envía a cuarentena outliers geográficos fuera de Madrid y distancias negativas.
     """
 
@@ -251,15 +251,6 @@ def limpiar_shapes(df_shapes, output_dir=None):
     # MOTOR GEOMÉTRICO EXTENDIDO: ENRIQUECIMIENTO TOPOLÓGICO VECTORIAL
     # ==============================================================================
     try:
-        # Definición interna vectorizada Haversine para evitar dependencias GIS pesadas
-        def _haversine_backend(lat1, lon1, lat2, lon2):
-            R = 6371000.0  # Radio medio de la Tierra en metros
-            rad_lat1, rad_lon1 = np.radians(lat1), np.radians(lon1)
-            rad_lat2, rad_lon2 = np.radians(lat2), np.radians(lon2)
-            dlat, dlon = rad_lat2 - rad_lat1, rad_lon2 - rad_lon1
-            a = np.sin(dlat/2.0)**2 + np.cos(rad_lat1) * np.cos(rad_lat2) * np.sin(dlon/2.0)**2
-            return R * (2.0 * np.arctan2(np.sqrt(a), np.sqrt(1.0 - a)))
-
         # A) Cómputo del delta de distancia inter-nodo manteniendo precisión entera
         df['delta_dist_metros'] = df.groupby('shape_id')['shape_dist_traveled'].diff().fillna(0).astype("int32")
 
@@ -273,8 +264,8 @@ def limpiar_shapes(df_shapes, output_dir=None):
             total_nodos=('shape_pt_sequence', 'count')
         ).reset_index()
 
-        # Distancia recta pura calculada entre terminales mediante Haversine
-        cabeceras['dist_recta'] = _haversine_backend(
+        # Distancia recta pura calculada entre terminales reutilizando src.utils.calcular_distancia_haversine
+        cabeceras['dist_recta'] = calcular_distancia_haversine(
             cabeceras['lat_origen'], cabeceras['lon_origen'],
             cabeceras['lat_destino'], cabeceras['lon_destino']
         ).replace(0, 1.0)
@@ -339,6 +330,7 @@ def limpiar_shapes(df_shapes, output_dir=None):
         logging.info("Control de calidad y topología lineal de 'shapes' correcto: El 100% de los trazados pasan limpias.")
 
     return df_limpio
+
 
 def limpiar_calendar(df_calendar, output_dir=None):
     """
