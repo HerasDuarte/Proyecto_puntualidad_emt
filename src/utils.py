@@ -99,3 +99,4 @@ def clasificar_territorio_avanzado(ratio):
     elif ratio <= 0.30: return 'Transversal\nPeriférica (0-30%)'
     elif ratio <= 0.60: return 'Transversal\nEquilibrada (30-60%)'
     else: return 'Transversal\nInvasiva (>60%)'
+
