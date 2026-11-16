@@ -1,12 +1,21 @@
 # 🚌 Predicción de Puntualidad en la Red de Autobuses de la EMT de Madrid
+### Estudio Comparativo mediante Enriquecimiento Progresivo de Datos (*GTFS + Tráfico Urbano + Meteorología*)
 
-Sistema de ingeniería de datos y aprendizaje automático (*Machine Learning*) diseñado para modelar, auditar y predecir los retrasos en la red de transporte público de superficie de Madrid (**EMT Madrid**), integrando el catálogo planificado oficial **GTFS** con arquitectura híbrida de alto rendimiento (**Pandas + PyArrow** y **Polars Lazy**).
+Sistema de ingeniería de datos y aprendizaje automático (*Machine Learning*) diseñado para auditar, modelar y predecir los retrasos en la red de transporte público de superficie de Madrid (**EMT Madrid**).
+
+El proyecto sigue una **metodología experimental incremental en tres etapas**, entrenando y comparando **tres modelos predictivos progresivos** sobre un mismo conjunto de validación para medir con rigor el impacto real que aporta cada nueva fuente de información abierta:
+
+1. **Modelo 1 — Baseline Estructural (`GTFS`):** Predicción basada exclusivamente en la oferta planificada, topología vial, densidad de marquesinas, sinuosidad de trazado y contención espacial dentro de la **M-30**.
+
+2. **Modelo 2 — Contexto Vial (`GTFS + Tráfico Ayuntamiento de Madrid`):** Incorporación del estado del tráfico urbano en tiempo real (intensidad, ocupación, carga vial y nivel de servicio en espiras electromagnéticas próximas a cada parada).
+
+3. **Modelo 3 — Multimodal Completo (`GTFS + Tráfico + Meteorología`):** Integración de variables climáticas horarias (precipitación, rachas de viento y temperatura) para capturar su efecto multiplicador sobre la velocidad comercial y los tiempos de embarque.
 
 ---
 
 ## 🏗️ Arquitectura del Proyecto
 
-El repositorio sigue una estructura modular de ingeniería de software que separa estrictamente el laboratorio exploratorio (`notebooks/`) del motor de producción (`src/`), los scripts ejecutables (`scripts/`), los artefactos visuales (`reports/`), los diccionarios de datos (`docs/`) y las pruebas automatizadas (`tests/`):
+El repositorio sigue una estructura modular de ingeniería de software que separa el laboratorio exploratorio (`notebooks/`) del motor de producción (`src/`), los scripts ejecutables (`scripts/`), los artefactos cartográficos (`reports/`), los diccionarios de datos (`docs/`) y las pruebas automatizadas (`tests/`):
 
 ```text
 Proyecto_puntualidad_emt/
@@ -22,7 +31,7 @@ Proyecto_puntualidad_emt/
 │   ├── 06_trips_Dict.md
 │   ├── 07_stop_times_Dict.md
 │   └── 08_frequencies_Dict.md
-├── notebooks/                     # Análisis Exploratorio de Datos (EDA) reproducible
+├── notebooks/                     # Análisis Exploratorio de Datos (EDA) y Experimentación ML
 │   ├── 01_EDA_routes.ipynb
 │   ├── 02_EDA_stops.ipynb
 │   ├── 03_EDA_shapes.ipynb
@@ -46,16 +55,16 @@ Proyecto_puntualidad_emt/
 ├── tests/                         # Suite de pruebas unitarias y de integración (pytest)
 │   └── test_pipeline.py
 ├── backlog_ideas.md               # Hoja de ideas y mejoras futuras del sistema
-├── TODO.md                        # Checklist operativo de tareas previas a publicación
+├── TODO.md                        # Checklist operativo de desarrollo y publicación
 ├── requirements.txt               # Dependencias fijadas del entorno virtual
 └── README.md
 ```
 
 ---
 
-## 📊 Inventario de Datos Procesados y Tabla Maestra
+## 📊 Inventario de Datos Procesados (Capa Base GTFS)
 
-El pipeline de ingeniería procesa y valida **8 tablas relacionales** y las consolida en una única **Tabla Analítica Maestra** comprimida en formato columnar (`Parquet ZSTD`). *(Nota: Los volúmenes de filas mostrados corresponden a la instantánea base auditada; el pipeline y los tests validan la cardinalidad de forma dinámica ante cualquier actualización del catálogo GTFS).*
+El pipeline de ingeniería procesa y valida **8 tablas relacionales** y las consolida en una única **Tabla Analítica Maestra** comprimida en formato columnar (`Parquet ZSTD`), que constituye la estructura base sobre la que se entrenará el **Modelo 1** y se acoplarán las fuentes dinámicas de los **Modelos 2 y 3**. *(Nota: Los volúmenes de filas mostrados corresponden a la instantánea base auditada; el pipeline y los tests validan la cardinalidad de forma dinámica ante cualquier actualización del catálogo GTFS).*
 
 | Tabla / Archivo Procesado | Motor | Filas Base | Columnas | Características Clave y Predictores Inyectados |
 | :--- | :--- | :---: | :---: | :--- |
@@ -67,7 +76,17 @@ El pipeline de ingeniería procesa y valida **8 tablas relacionales** y las cons
 | **`trips_limpio.csv`** | Pandas + PyArrow | 86.871 | 8 | Expediciones activas, rotación de turnos físicos (`block_id`) y `volumen_viajes_bloque`. |
 | **`stop_times_limpio.csv`** | **Polars Lazy** | 2.232.015 | 11 | Malla horaria masiva, `tiempo_tramo_teorico_seg`, `distancia_tramo_m`, `progreso_viaje_pct`, `densidad_paradas_acumuladas`. |
 | **`frequencies_limpio.csv`** | Pandas + PyArrow | 86.871 | 9 | Cadencias dinámicas, `autobuses_por_hora`, `duracion_franja_secs`, `hora_central_franja`. |
-| **`maestro_gtfs.parquet`** | **Polars + ZSTD** | **2.232.015** | **37** | **Golden Dataset unificado (27,12 MB en disco)** listo para cruce con datos en tiempo real y modelado ML. |
+| **`maestro_gtfs.parquet`** | **Polars + ZSTD** | **2.232.015** | **37** | **Golden Dataset estructural (27,12 MB en disco)** listo para cruce con tiempos reales, tráfico y clima. |
+
+---
+
+## 🧪 Estrategia Experimental: Comparativa de 3 Modelos
+
+| Iteración | Conjunto de Datos | Fuentes Integradas | Pregunta de Negocio que Responde |
+| :--- | :--- | :--- | :--- |
+| **Modelo 1** | *Baseline Estructural* | `maestro_gtfs.parquet` + Llegadas reales EMT (target) | ¿Cuánto retraso se explica únicamente por la estructura de la red, la hora y la saturación planificada? |
+| **Modelo 2** | *Contexto Vial* | Modelo 1 + **Tráfico Ayuntamiento de Madrid** | ¿En qué porcentaje se reduce el error (`MAE` / `RMSE`) al incorporar la intensidad y carga real del tráfico cercano? |
+| **Modelo 3** | *Multimodal Completo* | Modelo 2 + **Meteorología (AEMET / Open-Meteo)** | ¿Cuál es la ganancia marginal adicional al añadir lluvia, viento y temperatura al modelo? |
 
 ---
 
@@ -102,7 +121,8 @@ pytest -v
 
 ## 🗺️ Hoja de Ruta (Roadmap)
 
-- [x] **Fase 1 — Auditoría Exploratoria (EDA):** Análisis forense, visualización corporativa, cartografía estática/interactiva (`reports/`) y diccionarios de datos de las 8 tablas GTFS (`notebooks/01` a `08`).
-- [x] **Fase 2 — Ingeniería de Datos y Producción:** Pipeline híbrido (`PyArrow` + `Polars Lazy`), modularización DRY (`src/utils.py`), generación de `maestro_gtfs.parquet` y validación dinámica con `pytest`.
-- [ ] **Fase 3 — Ingesta en Tiempo Real (API MobilityLabs EMT):** Captura de tiempos reales de llegada en parada y cálculo de la variable objetivo (`retraso_real_seg`).
-- [ ] **Fase 4 — Modelado Predictivo y Evaluación:** Entrenamiento y optimización de modelos supervisados (`LightGBM` / `XGBoost`) para predicción de retrasos por tramo y franja horaria.
+- [x] **Fase 1 — Auditoría Exploratoria (EDA GTFS):** Análisis forense, visualización corporativa, cartografía estática/interactiva (`reports/`) y diccionarios de datos de las 8 tablas GTFS (`notebooks/01` a `08`).
+- [x] **Fase 2 — Ingeniería de Datos Estructural:** Pipeline híbrido (`PyArrow` + `Polars Lazy`), modularización DRY (`src/utils.py`), generación de `maestro_gtfs.parquet` y validación dinámica con `pytest`.
+- [ ] **Fase 3 — EDA de Tabla Maestra y Modelo 1 (*Baseline GTFS*):** Ingeniería de características relacional (`09_EDA_maestro.ipynb`), ingesta de tiempos reales EMT (`API MobilityLabs`) y entrenamiento del primer modelo base.
+- [ ] **Fase 4 — Enriquecimiento con Tráfico Urbano y Modelo 2:** Auditoría de sensores de tráfico del Ayuntamiento de Madrid (`10_EDA_trafico.ipynb`), cruce espacial con paradas EMT y entrenamiento del segundo modelo.
+- [ ] **Fase 5 — Enriquecimiento Meteorológico, Modelo 3 y Evaluación Comparativa:** Integración de variables climáticas (`11_EDA_meteorologia.ipynb`), entrenamiento del tercer modelo multimodal y auditoría comparativa final (`12_Comparativa_Modelos.ipynb`).
