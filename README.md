@@ -5,10 +5,8 @@ Sistema de ingeniería de datos y aprendizaje automático (*Machine Learning*) d
 
 El proyecto sigue una **metodología experimental incremental en tres etapas**, entrenando y comparando **tres modelos predictivos progresivos** sobre un mismo conjunto de validación para medir con rigor el impacto real que aporta cada nueva fuente de información abierta:
 
-1. **Modelo 1 — Baseline Estructural (`GTFS`):** Predicción basada exclusivamente en la oferta planificada, topología vial, densidad de marquesinas, sinuosidad de trazado y contención espacial dentro de la **M-30**.
-
+1. **Modelo 1 — Baseline Estructural (`GTFS`):** Predicción basada exclusivamente en la oferta planificada, topología vial, saturación simultánea por marquesina en ventanas de 15 minutos, sinuosidad normalizada y contención espacial dentro de la **M-30**.
 2. **Modelo 2 — Contexto Vial (`GTFS + Tráfico Ayuntamiento de Madrid`):** Incorporación del estado del tráfico urbano en tiempo real (intensidad, ocupación, carga vial y nivel de servicio en espiras electromagnéticas próximas a cada parada).
-
 3. **Modelo 3 — Multimodal Completo (`GTFS + Tráfico + Meteorología`):** Integración de variables climáticas horarias (precipitación, rachas de viento y temperatura) para capturar su efecto multiplicador sobre la velocidad comercial y los tiempos de embarque.
 
 ---
@@ -30,7 +28,8 @@ Proyecto_puntualidad_emt/
 │   ├── 05_calendar_dates_Dict.md
 │   ├── 06_trips_Dict.md
 │   ├── 07_stop_times_Dict.md
-│   └── 08_frequencies_Dict.md
+│   ├── 08_frequencies_Dict.md
+│   └── 09_maestro_Dict.md
 ├── notebooks/                     # Análisis Exploratorio de Datos (EDA) y Experimentación ML
 │   ├── 01_EDA_routes.ipynb
 │   ├── 02_EDA_stops.ipynb
@@ -39,7 +38,8 @@ Proyecto_puntualidad_emt/
 │   ├── 05_EDA_calendar_dates.ipynb
 │   ├── 06_EDA_trips.ipynb
 │   ├── 07_EDA_stop_times.ipynb
-│   └── 08_EDA_frequencies.ipynb
+│   ├── 08_EDA_frequencies.ipynb
+│   └── 09_EDA_maestro.ipynb
 ├── reports/                       # Cartografía exportada en PNG estático y HTML interactivo
 │   ├── mapa_paradas_emt.html
 │   ├── mapa_paradas_emt.png
@@ -63,7 +63,7 @@ Proyecto_puntualidad_emt/
 
 ## 📊 Inventario de Datos Procesados (Capa Base GTFS)
 
-El pipeline de ingeniería procesa y valida **8 tablas relacionales** y las consolida en una única **Tabla Analítica Maestra** comprimida en formato columnar (`Parquet ZSTD`), que constituye la estructura base sobre la que se entrenará el **Modelo 1** y se acoplarán las fuentes dinámicas de los **Modelos 2 y 3**. *(Nota: Los volúmenes de filas mostrados corresponden a la instantánea base auditada; el pipeline y los tests validan la cardinalidad de forma dinámica ante cualquier actualización del catálogo GTFS).*
+El pipeline de ingeniería procesa y valida **8 tablas relacionales** y las consolida en una única **Tabla Analítica Maestra** comprimida en formato columnar (`Parquet ZSTD`), que constituye la estructura base sobre la que se entrenará el **Modelo 1** y se acoplarán las fuentes dinámicas de los **Modelos 2 y 3**. *(Nota: Los volúmenes de filas mostrados corresponden a la instantánea base auditada; el pipeline y los tests validan la cardinalidad y el esquema de forma dinámica).*
 
 | Tabla / Archivo Procesado | Motor | Filas Base | Columnas | Características Clave y Predictores Inyectados |
 | :--- | :--- | :---: | :---: | :--- |
@@ -75,7 +75,7 @@ El pipeline de ingeniería procesa y valida **8 tablas relacionales** y las cons
 | **`trips_limpio.csv`** | Pandas + PyArrow | 86.871 | 8 | Expediciones activas, rotación de turnos físicos (`block_id`) y `volumen_viajes_bloque`. |
 | **`stop_times_limpio.csv`** | **Polars Lazy** | 2.232.015 | 11 | Malla horaria masiva, `tiempo_tramo_teorico_seg`, `distancia_tramo_m`, `progreso_viaje_pct`, `densidad_paradas_acumuladas`. |
 | **`frequencies_limpio.csv`** | Pandas + PyArrow | 86.871 | 9 | Cadencias dinámicas, `autobuses_por_hora`, `duracion_franja_secs`, `hora_central_franja`. |
-| **`maestro_gtfs.parquet`** | **Polars + ZSTD** | **2.232.015** | **37** | **Golden Dataset estructural (27,12 MB en disco)** listo para cruce con tiempos reales, tráfico y clima. |
+| **`maestro_gtfs.parquet`** | **Polars + ZSTD** | **2.232.015** | **46** | **Golden Dataset estructural (69,30 MB)** enriquecido con `tipo_jornada`, `velocidad_teorica_kmh`, `saturacion_marquesina_15min`, `friccion_acumulada_m30`, `indice_sinuosidad_normalizado` y codificación cíclica `hora_seno`/`hora_coseno`. |
 
 ---
 
@@ -105,13 +105,13 @@ python -m scripts.pipeline_limpieza
 ```
 
 ### 3. Construcción de la Tabla Analítica Maestra (`maestro_gtfs.parquet`)
-Ejecuta el ensamblaje relacional en **Polars Lazy** verificando dinámicamente la preservación íntegra del 100% de los registros de `stop_times_limpio.csv` sin duplicidades ni nulos en claves críticas:
+Ejecuta el ensamblaje relacional e inyección de variables de interacción en **Polars Lazy** verificando dinámicamente la preservación íntegra de los **2.232.015 tramos** y las **46 columnas**:
 ```bash
 python -m scripts.construir_maestro_gtfs
 ```
 
 ### 4. Ejecución de Tests Automatizados
-Valida las reglas de negocio, el aislamiento en cuarentena y la integridad dinámica del fichero `.parquet` generado:
+Valida las reglas de negocio, el aislamiento en cuarentena y los dominios físicos de las 46 columnas del fichero `.parquet` generado:
 ```bash
 pytest -v
 ```
@@ -121,7 +121,7 @@ pytest -v
 ## 🗺️ Hoja de Ruta (Roadmap)
 
 - [x] **Fase 1 — Auditoría Exploratoria (EDA GTFS):** Análisis forense, visualización corporativa, cartografía estática/interactiva (`reports/`) y diccionarios de datos de las 8 tablas GTFS (`notebooks/01` a `08`).
-- [x] **Fase 2 — Ingeniería de Datos Estructural:** Pipeline híbrido (`PyArrow` + `Polars Lazy`), modularización DRY (`src/utils.py`), generación de `maestro_gtfs.parquet` y validación dinámica con `pytest`.
-- [ ] **Fase 3 — EDA de Tabla Maestra y Modelo 1 (*Baseline GTFS*):** Ingeniería de características relacional (`09_EDA_maestro.ipynb`), ingesta de tiempos reales EMT (`API MobilityLabs`) y entrenamiento del primer modelo base.
+- [x] **Fase 2 — Ingeniería de Datos Estructural y Tabla Maestra:** Pipeline híbrido (`PyArrow` + `Polars Lazy`), modularización DRY (`src/utils.py`), auditoría relacional (`09_EDA_maestro.ipynb`), generación de `maestro_gtfs.parquet` (46 columnas) y validación dinámica con `pytest`.
+- [ ] **Fase 3 — Modelo 1 (*Baseline GTFS*):** Ingesta de tiempos reales EMT (`API MobilityLabs`), cálculo de la variable objetivo (`retraso_real_seg`) y entrenamiento del primer modelo base.
 - [ ] **Fase 4 — Enriquecimiento con Tráfico Urbano y Modelo 2:** Auditoría de sensores de tráfico del Ayuntamiento de Madrid (`10_EDA_trafico.ipynb`), cruce espacial con paradas EMT y entrenamiento del segundo modelo.
 - [ ] **Fase 5 — Enriquecimiento Meteorológico, Modelo 3 y Evaluación Comparativa:** Integración de variables climáticas (`11_EDA_meteorologia.ipynb`), entrenamiento del tercer modelo multimodal y auditoría comparativa final (`12_Comparativa_Modelos.ipynb`).

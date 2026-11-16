@@ -93,7 +93,7 @@ def test_integridad_tabla_maestra_parquet():
 
     assert filas_parquet > 0, "La Tabla Maestra Parquet está vacía."
     assert filas_parquet == filas_base, f"Cardinalidad alterada: {filas_parquet:,} vs {filas_base:,}"
-    assert len(columnas) == 37, f"Esquema alterado: {len(columnas)} columnas"
+    assert len(columnas) == 46, f"Esquema alterado: {len(columnas)} columnas (esperadas: 46)"
 
     nulos_criticos = (
         lf_parquet.select([
@@ -107,3 +107,42 @@ def test_integridad_tabla_maestra_parquet():
         .row(0)
     )
     assert sum(nulos_criticos) == 0, f"Se detectaron valores nulos en claves críticas: {nulos_criticos}"
+
+
+def test_feature_engineering_relacional_maestro():
+    """Valida los dominios físicos y ausencia de nulos en las 9 variables de interacción relacional."""
+    processed_dir = ROOT_DIR / 'data' / 'processed'
+    lf_parquet = pl.scan_parquet(processed_dir / 'maestro_gtfs.parquet')
+
+    nuevas_cols = [
+        'hora_entera', 'tramo_15min', 'tipo_jornada',
+        'indice_sinuosidad_normalizado', 'velocidad_teorica_kmh',
+        'friccion_acumulada_m30', 'hora_seno', 'hora_coseno',
+        'saturacion_marquesina_15min'
+    ]
+
+    # 1. Cero nulos en las 9 columnas inyectadas
+    nulos_nuevas = lf_parquet.select([pl.col(c).null_count() for c in nuevas_cols]).collect().row(0)
+    assert sum(nulos_nuevas) == 0, f"Se detectaron nulos en las nuevas variables: {nulos_nuevas}"
+
+    # 2. Verificación de rangos operativos y dominios válidos
+    metricas = next(iter(lf_parquet.select([
+        pl.col('hora_entera').min().alias('min_h'),
+        pl.col('hora_entera').max().alias('max_h'),
+        pl.col('tramo_15min').min().alias('min_t15'),
+        pl.col('tramo_15min').max().alias('max_t15'),
+        pl.col('velocidad_teorica_kmh').min().alias('min_vel'),
+        pl.col('velocidad_teorica_kmh').max().alias('max_vel'),
+        pl.col('friccion_acumulada_m30').min().alias('min_fric'),
+        pl.col('friccion_acumulada_m30').max().alias('max_fric'),
+        pl.col('saturacion_marquesina_15min').min().alias('min_sat')
+    ]).collect().to_dicts()))
+
+    assert 0 <= metricas['min_h'] <= metricas['max_h'] <= 23
+    assert 0 <= metricas['min_t15'] <= metricas['max_t15'] <= 95
+    assert 0.0 <= metricas['min_vel'] <= metricas['max_vel'] <= 80.0
+    assert 0.0 <= metricas['min_fric'] <= metricas['max_fric'] <= 1.0
+    assert metricas['min_sat'] >= 1
+
+    jornadas_unicas = set(lf_parquet.select(pl.col('tipo_jornada').unique()).collect()['tipo_jornada'].to_list())
+    assert jornadas_unicas.issubset({'LABORABLE', 'VIERNES_VISPERA', 'FIN_DE_SEMANA'})
