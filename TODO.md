@@ -18,9 +18,9 @@ Registro operativo de tareas pendientes de desarrollo experimental, integración
   - Entrenar el **Modelo 3** y construir el estudio comparativo final enfrentando los 3 modelos e interpretando la importancia de variables (*SHAP / Feature Importance*).
 
 ## 🚀 Checklist de Publicación (Paso de Privado a Público en GitHub)
-- [ ] **Cambiar visibilidad en GitHub:** Ir a `Settings -> General -> Danger Zone -> Change repository visibility -> Make public`.
-- [ ] **Activar GitHub Pages:** Ir a `Settings -> Pages -> Build and deployment -> Deploy from a branch` y seleccionar la rama `main` (`/root`).
-- [ ] **Actualizar enlaces interactivos en los Notebooks (`GitHub Pages`):**
-  - En `notebooks/02_EDA_stops.ipynb`: Verificar que la URL `https://github.io` carga correctamente el mapa de paradas y eliminar el aviso *(PENDIENTE DE ACTIVAR GITHUB PAGES AL HACER PÚBLICO EL REPOSITORIO)*.
-  - En `notebooks/03_EDA_shapes.ipynb`: Verificar que la URL `https://github.io` carga correctamente el visor de trazados y eliminar el aviso *(PENDIENTE DE ACTIVAR GITHUB PAGES AL HACER PÚBLICO EL REPOSITORIO)*.
-- [x] **Auditoría visual final en GitHub:** Confirmar que los 8 notebooks (`01` a `08`) renderizan todos sus gráficos estáticos sin espacios en blanco.
+- [x] **Cambiar visibilidad en GitHub:** Repositorio publicado en abierto (`Public`).
+- [x] **Activar GitHub Pages:** Sitio web desplegado en `https://herasduarte.github.io/Proyecto_puntualidad_emt/`.
+- [x] **Actualizar enlaces interactivos en los Notebooks (`GitHub Pages`):**
+  - En `notebooks/02_EDA_stops.ipynb`: Enlace activo a `https://github.io`.
+  - En `notebooks/03_EDA_shapes.ipynb`: Enlace activo con selector de rutas y leyenda reubicada en `https://github.io`.
+- [x] **Auditoría visual final en GitHub:** Confirmado que los 8 notebooks (`01` a `08`) renderizan todos sus gráficos estáticos sin espacios en blanco.
