@@ -54,7 +54,6 @@ Proyecto_puntualidad_emt/
 │   └── construir_maestro_gtfs.py  # Genera la Tabla Analítica Maestra en formato Parquet
 ├── tests/                         # Suite de pruebas unitarias y de integración (pytest)
 │   └── test_pipeline.py
-├── backlog_ideas.md               # Hoja de ideas y mejoras futuras del sistema
 ├── TODO.md                        # Checklist operativo de desarrollo y publicación
 ├── requirements.txt               # Dependencias fijadas del entorno virtual
 └── README.md
