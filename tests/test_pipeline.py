@@ -3,11 +3,15 @@ import pandas as pd
 import polars as pl
 from pathlib import Path
 import sys
+import numpy as np
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(ROOT_DIR))
 
 from src.limpieza import limpiar_routes, limpiar_frequencies
+from src.trafico import sanear_xml_madrid, vincular_trafico_a_paradas
+from src.meteorologia import obtener_meteorologia_actual
+from src.emt_realtime import ClienteEMTRealtime, construir_lista_paradas_estratificada
 
 
 # ==============================================================================
@@ -121,11 +125,9 @@ def test_feature_engineering_relacional_maestro():
         'saturacion_marquesina_15min'
     ]
 
-    # 1. Cero nulos en las 9 columnas inyectadas
     nulos_nuevas = lf_parquet.select([pl.col(c).null_count() for c in nuevas_cols]).collect().row(0)
     assert sum(nulos_nuevas) == 0, f"Se detectaron nulos en las nuevas variables: {nulos_nuevas}"
 
-    # 2. Verificación de rangos operativos y dominios válidos
     metricas = next(iter(lf_parquet.select([
         pl.col('hora_entera').min().alias('min_h'),
         pl.col('hora_entera').max().alias('max_h'),
@@ -146,3 +148,113 @@ def test_feature_engineering_relacional_maestro():
 
     jornadas_unicas = set(lf_parquet.select(pl.col('tipo_jornada').unique()).collect()['tipo_jornada'].to_list())
     assert jornadas_unicas.issubset({'LABORABLE', 'VIERNES_VISPERA', 'FIN_DE_SEMANA'})
+
+
+# ==============================================================================
+# 3. PRUEBAS UNITARIAS DE MÓDULOS EN TIEMPO REAL (TRÁFICO, METEO Y CUOTA EMT)
+# ==============================================================================
+
+def test_trafico_saneamiento_xml_y_cruce_idw():
+    """Verifica el saneamiento XML municipal y la ponderación espacial IDW sobre paradas."""
+    xml_sucio = b"<pms><pm><descripcion>VELAZQUEZ & GOYA\x07</descripcion></pm></pms>"
+    xml_limpio = sanear_xml_madrid(xml_sucio)
+    assert "&amp;" in xml_limpio
+    assert "\x07" not in xml_limpio
+
+    df_stops_test = pd.DataFrame({
+        "stop_id": ["100", "200"],
+        "stop_lat": [40.4200, 40.5000],
+        "stop_lon": [-3.6900, -3.6000]
+    })
+
+    df_sensores_test = pd.DataFrame({
+        "timestamp_trafico": ["18/11/2026 19:00:00", "18/11/2026 19:00:00"],
+        "idelem": ["S1", "S2"],
+        "carga": [40.0, 80.0],
+        "ocupacion": [15.0, 35.0],
+        "intensidad": [500.0, 1200.0],
+        "nivel_servicio": [1.0, 3.0],
+        "lat": [40.4205, 40.4220],
+        "lon": [-3.6900, -3.6900]
+    })
+
+    df_res = vincular_trafico_a_paradas(df_stops_test, df_sensores_test)
+
+    assert bool(df_res.loc[0, "tiene_cobertura_trafico_500m"]) is True
+    assert int(df_res.loc[0, "num_sensores_500m"]) == 2
+    assert float(df_res.loc[0, "trafico_nivel_servicio_max"]) == 3.0
+    assert 40.0 < float(df_res.loc[0, "trafico_carga_entorno"]) < 60.0
+
+    assert bool(df_res.loc[1, "tiene_cobertura_trafico_500m"]) is False
+    assert np.isnan(df_res.loc[1, "trafico_carga_entorno"])
+
+
+def test_meteorologia_parseo_open_meteo(monkeypatch):
+    """Verifica el parseo y esquema de las 13 variables meteorológicas de 15 minutos."""
+    class MockResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "current": {
+                    "time": "2026-11-18T19:45",
+                    "temperature_2m": 12.4,
+                    "apparent_temperature": 10.8,
+                    "relative_humidity_2m": 68,
+                    "is_day": 0,
+                    "precipitation": 0.2,
+                    "rain": 0.2,
+                    "snowfall": 0.0,
+                    "visibility": 9500.0,
+                    "weather_code": 61,
+                    "wind_speed_10m": 14.5,
+                    "wind_gusts_10m": 24.0
+                }
+            }
+
+    monkeypatch.setattr("src.meteorologia.requests.get", lambda *args, **kwargs: MockResponse())
+    df_meteo = obtener_meteorologia_actual()
+
+    assert len(df_meteo) == 1
+    assert df_meteo.shape[1] == 13
+    assert float(df_meteo["temperatura_c"].iloc[0]) == 12.4
+    assert float(df_meteo["visibilidad_m"].iloc[0]) == 9500.0
+    assert int(df_meteo["es_de_dia"].iloc[0]) == 0
+
+
+def test_emt_rotacion_estratificada_y_control_cuota(monkeypatch):
+    """Verifica el intercalado M-30/Periferia y el bloqueo autónomo al alcanzar el límite."""
+    secuencia = construir_lista_paradas_estratificada()
+    assert len(secuencia) == 4928
+    assert len(set(secuencia)) == 4928
+
+    monkeypatch.setenv("EMT_CLIENT_ID", "test_id")
+    monkeypatch.setenv("EMT_PASSKEY", "test_key")
+
+    cliente = ClienteEMTRealtime(limite_ciclo=2)
+    cliente.estado = {
+        "session_id": "SES_TEST",
+        "session_start_utc": "2026-11-18T18:00:00+00:00",
+        "last_request_utc": None,
+        "next_allowed_start_utc": None,
+        "peticiones_realizadas": 0,
+        "indice_parada_actual": 0,
+        "en_pausa_cuota": False
+    }
+
+    monkeypatch.setattr("src.emt_realtime._guardar_estado_cuota", lambda estado, **kw: None)
+    monkeypatch.setattr(
+        cliente,
+        "_consultar_parada",
+        lambda stop_id: [{"line": "27", "destination": "PLAZA CASTILLA", "bus": "101", "estimateArrive": 120, "DistanceBus": 300}]
+    )
+
+    df_lote, _ = cliente.ejecutar_lote_rotativo(tamano_lote=5)
+    assert len(df_lote) == 2
+    assert cliente.estado["en_pausa_cuota"] is True
+    assert cliente.estado["next_allowed_start_utc"] is not None
+
+    df_vacio, estado_pausa = cliente.ejecutar_lote_rotativo(tamano_lote=5)
+    assert df_vacio.empty
+    assert "STANDBY_CUOTA" in estado_pausa
