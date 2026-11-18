@@ -2,6 +2,10 @@
 
 Registro operativo de tareas de ingeniería de datos, captura en tiempo real y modelado predictivo.
 
+> **📡 Bitácora de Captura en Tiempo Real:**
+> * **Inicio oficial de ingesta sincronizada (`EMT + Tráfico + Meteorología`):** `18/11/2026 a las 18:30 CET` (ejecución inicial en entorno local mediante `scripts/ejecutar_ingesta_realtime.py` con barrido rotativo sobre las 4.928 paradas EMT y control autónomo de cuota de 4.500 reqs/24h).
+> * **Arquitectura objetivo en despliegue continuo:** Migración prevista del orquestador y del ciclo periódico de reentrenamiento a un servidor Linux dedicado 24/7 (*Always-Free Cloud VM*) para garantizar captura ininterrumpida en todas las franjas horarias sin sesgo nocturno.
+
 ## 📊 Hoja de Trabajo Técnica (Fases 3 a 5)
 - [x] **Cierre de Capa Estructural (`notebooks/09_EDA_maestro.ipynb`):**
   - Realizado análisis exploratorio sobre `maestro_gtfs.parquet` (2.232.015 tramos unificados).
@@ -13,7 +17,7 @@ Registro operativo de tareas de ingeniería de datos, captura en tiempo real y m
 - [x] **Arquitectura Modular de Ingesta Sincronizada Multi-Fuente en Tiempo Real:**
   - Implementado `src/meteorologia.py` (captura cada 15 min de 11 variables climáticas en Madrid vía Open-Meteo).
   - Implementado `src/emt_realtime.py` (barrido rotativo estratificado sobre las 4.928 paradas EMT con tope autónomo de 4.500 peticiones y reactivación programada a las 24h + 1 min).
-  - Implementado y verificado en ejecución `scripts/ejecutar_ingesta_realtime.py` con persistencia incremental en Parquet (`data/raw/realtime/`) y tests unitarios en `tests/test_pipeline.py`.
+  - Implementado y verificado en ejecución `scripts/ejecutar_ingesta_realtime.py` con persistencia incremental en Parquet (`data/raw/realtime/`) y tests unitarios en `tests/test_pipeline.py` (`9 passed`).
 - [ ] **EDAs de Datos Dinámicos y Modelo 1 (*Baseline Estructural GTFS*):**
   - Construir `notebooks/11_EDA_meteorologia.ipynb` (`docs/11_meteorologia_Dict.md`) y `notebooks/12_EDA_llegadas_emt.ipynb` (`docs/12_emt_realtime_Dict.md`).
   - Calcular la variable objetivo (`retraso_real_seg`) cruzando llegadas reales con `maestro_gtfs.parquet` y entrenar el **Modelo 1**, fijando el conjunto de validación (*test set*) y las métricas base (`MAE`, `RMSE`, `R²`).

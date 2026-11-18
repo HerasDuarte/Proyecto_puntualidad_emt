@@ -128,6 +128,13 @@ Copia `.env.example` a `.env` e introduce tus credenciales gratuitas del portal 
 
 ---
 
+## 📡 Estado de Captura en Tiempo Real y Aprendizaje Continuo
+
+* **Inicio oficial de la campaña de recolección:** **`18/11/2026 a las 18:30 CET`** mediante el orquestador sincronizado `scripts/ejecutar_ingesta_realtime.py` (barrido rotativo sobre las **4.928 paradas EMT** con tope autónomo de **4.500 peticiones/24h**, estado del tráfico municipal cada **5 minutos** y meteorología de Madrid cada **15 minutos**).
+* **Arquitectura de producción continua:** Despliegue previsto en servidor Linux dedicado 24/7 (*Always-Free Cloud VM*) para garantizar cobertura ininterrumpida en todas las franjas horarias y ejecutar el ciclo periódico de reentrenamiento acumulativo sobre el histórico capturado.
+
+---
+
 ## 🗺️ Hoja de Ruta (Roadmap)
 
 - [x] **Fase 1 — Auditoría Exploratoria (EDA GTFS):** Análisis forense, visualización corporativa, cartografía estática/interactiva (`reports/`) y diccionarios de datos de las 8 tablas GTFS (`notebooks/01` a `08`).
