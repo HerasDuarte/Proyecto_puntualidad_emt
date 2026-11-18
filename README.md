@@ -6,7 +6,7 @@ Sistema de ingeniería de datos y aprendizaje automático (*Machine Learning*) d
 El proyecto sigue una **metodología experimental incremental en tres etapas**, entrenando y comparando **tres modelos predictivos progresivos** sobre un mismo conjunto de validación para medir con rigor el impacto real que aporta cada nueva fuente de información abierta:
 
 1. **Modelo 1 — Baseline Estructural (`GTFS`):** Predicción basada exclusivamente en la oferta planificada, topología vial, saturación simultánea por marquesina en ventanas de 15 minutos, sinuosidad normalizada y contención espacial dentro de la **M-30**.
-2. **Modelo 2 — Contexto Vial (`GTFS + Tráfico Ayuntamiento de Madrid`):** Incorporación del estado del tráfico urbano en tiempo real (intensidad, ocupación, carga vial y nivel de servicio en espiras electromagnéticas próximas a cada parada).
+2. **Modelo 2 — Contexto Vial (`GTFS + Tráfico Ayuntamiento de Madrid`):** Incorporación del estado del tráfico urbano en tiempo real (intensidad, ocupación, carga vial y nivel de servicio ponderados mediante *Inverse Distance Weighting* alrededor de cada parada).
 3. **Modelo 3 — Multimodal Completo (`GTFS + Tráfico + Meteorología`):** Integración de variables climáticas horarias (precipitación, rachas de viento y temperatura) para capturar su efecto multiplicador sobre la velocidad comercial y los tiempos de embarque.
 
 ---
@@ -18,9 +18,11 @@ El repositorio sigue una estructura modular de ingeniería de software que separ
 ```text
 Proyecto_puntualidad_emt/
 ├── data/
-│   ├── raw/gtfs/                  # Ficheros originales GTFS de la EMT de Madrid (sin modificar)
+│   ├── raw/
+│   │   ├── gtfs/                  # Ficheros originales GTFS de la EMT de Madrid (sin modificar)
+│   │   └── trafico/               # Instantáneas brutas del boletín XML de tráfico municipal
 │   └── processed/                 # 8 tablas saneadas (*_limpio.csv) + maestro_gtfs.parquet
-├── docs/                          # Diccionarios de datos completos y auditados por tabla
+├── docs/                          # Diccionarios de datos completos y auditados por fuente
 │   ├── 01_routes_Dict.md
 │   ├── 02_stops_Dict.md
 │   ├── 03_shapes_Dict.md
@@ -29,7 +31,8 @@ Proyecto_puntualidad_emt/
 │   ├── 06_trips_Dict.md
 │   ├── 07_stop_times_Dict.md
 │   ├── 08_frequencies_Dict.md
-│   └── 09_maestro_Dict.md
+│   ├── 09_maestro_Dict.md
+│   └── 10_trafico_Dict.md
 ├── notebooks/                     # Análisis Exploratorio de Datos (EDA) y Experimentación ML
 │   ├── 01_EDA_routes.ipynb
 │   ├── 02_EDA_stops.ipynb
@@ -39,21 +42,28 @@ Proyecto_puntualidad_emt/
 │   ├── 06_EDA_trips.ipynb
 │   ├── 07_EDA_stop_times.ipynb
 │   ├── 08_EDA_frequencies.ipynb
-│   └── 09_EDA_maestro.ipynb
+│   ├── 09_EDA_maestro.ipynb
+│   └── 10_EDA_trafico.ipynb
 ├── reports/                       # Cartografía exportada en PNG estático y HTML interactivo
 │   ├── mapa_paradas_emt.html
 │   ├── mapa_paradas_emt.png
+│   ├── mapa_sensores_trafico.html
+│   ├── mapa_sensores_trafico.png
 │   ├── visor_trazado_emt.html
 │   └── visor_trazado_emt.png
 ├── src/                           # Módulos reutilizables de producción
 │   ├── utils.py                   # Utilidades matemáticas, geodésicas (Haversine) y Regex
 │   ├── limpieza.py                # Motores de saneamiento, cuarentena y Feature Engineering
-│   └── consolidacion.py           # Ensamblaje relacional en Polars Lazy -> Parquet ZSTD
+│   ├── consolidacion.py           # Ensamblaje relacional en Polars Lazy -> Parquet ZSTD
+│   └── trafico.py                 # Ingesta XML tráfico Madrid, saneamiento y cruce espacial IDW
 ├── scripts/                       # Scripts ejecutables de línea de comandos
 │   ├── pipeline_limpieza.py       # Ejecuta la limpieza completa de las 8 tablas GTFS
-│   └── construir_maestro_gtfs.py  # Genera la Tabla Analítica Maestra en formato Parquet
+│   ├── construir_maestro_gtfs.py  # Genera la Tabla Analítica Maestra en formato Parquet
+│   ├── capturar_trafico_madrid.py # Descarga instantánea en vivo del tráfico del Ayuntamiento
+│   └── test_conexion_api.py       # Verifica credenciales y consulta en vivo API MobilityLabs
 ├── tests/                         # Suite de pruebas unitarias y de integración (pytest)
 │   └── test_pipeline.py
+├── .env.example                   # Plantilla pública de variables de entorno y claves API
 ├── TODO.md                        # Checklist operativo de desarrollo y publicación
 ├── requirements.txt               # Dependencias fijadas del entorno virtual
 └── README.md
@@ -63,7 +73,7 @@ Proyecto_puntualidad_emt/
 
 ## 📊 Inventario de Datos Procesados (Capa Base GTFS)
 
-El pipeline de ingeniería procesa y valida **8 tablas relacionales** y las consolida en una única **Tabla Analítica Maestra** comprimida en formato columnar (`Parquet ZSTD`), que constituye la estructura base sobre la que se entrenará el **Modelo 1** y se acoplarán las fuentes dinámicas de los **Modelos 2 y 3**. *(Nota: Los volúmenes de filas mostrados corresponden a la instantánea base auditada; el pipeline y los tests validan la cardinalidad y el esquema de forma dinámica).*
+El pipeline de ingeniería procesa y valida **8 tablas relacionales** y las consolida en una única **Tabla Analítica Maestra** comprimida en formato columnar (`Parquet ZSTD`), que constituye la estructura base sobre la que se entrenará el **Modelo 1** y se acoplarán las fuentes dinámicas de los **Modelos 2 y 3**.
 
 | Tabla / Archivo Procesado | Motor | Filas Base | Columnas | Características Clave y Predictores Inyectados |
 | :--- | :--- | :---: | :---: | :--- |
@@ -84,34 +94,34 @@ El pipeline de ingeniería procesa y valida **8 tablas relacionales** y las cons
 | Iteración | Conjunto de Datos | Fuentes Integradas | Pregunta de Negocio que Responde |
 | :--- | :--- | :--- | :--- |
 | **Modelo 1** | *Baseline Estructural* | `maestro_gtfs.parquet` + Llegadas reales EMT (target) | ¿Cuánto retraso se explica únicamente por la estructura de la red, la hora y la saturación planificada? |
-| **Modelo 2** | *Contexto Vial* | Modelo 1 + **Tráfico Ayuntamiento de Madrid** | ¿En qué porcentaje se reduce el error (`MAE` / `RMSE`) al incorporar la intensidad y carga real del tráfico cercano? |
-| **Modelo 3** | *Multimodal Completo* | Modelo 2 + **Meteorología (AEMET / Open-Meteo)** | ¿Cuál es la ganancia marginal adicional al añadir lluvia, viento y temperatura al modelo? |
+| **Modelo 2** | *Contexto Vial* | Modelo 1 + **Tráfico Ayuntamiento de Madrid (`src/trafico.py`)** | ¿En qué porcentaje se reduce el error (`MAE` / `RMSE`) al incorporar la intensidad y carga real del tráfico cercano? |
+| **Modelo 3** | *Multimodal Completo* | Modelo 2 + **Meteorología (Open-Meteo / AEMET)** | ¿Cuál es la ganancia marginal adicional al añadir lluvia, viento y temperatura al modelo? |
 
 ---
 
 ## 🚀 Instalación y Ejecución del Pipeline
 
-### 1. Preparación del Entorno Virtual
+### 1. Preparación del Entorno Virtual y Credenciales
 ```bash
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1   # En Windows PowerShell
 pip install -r requirements.txt
 ```
+Copia `.env.example` a `.env` e introduce tus credenciales gratuitas de [MobilityLabs EMT Madrid](https://emtmadrid.es "Portal Oficial MobilityLabs EMT Madrid") (`EMT_CLIENT_ID` y `EMT_PASSKEY`).
 
-### 2. Ejecución del Pipeline de Limpieza y Feature Engineering
-Procesa los 8 archivos brutos de `data/raw/gtfs/`, aplica reglas de integridad referencial, aísla cualquier anomalía en archivos `quarantine_*.csv` y exporta los conjuntos limpios en **menos de 3 segundos**:
+### 2. Ejecución del Pipeline de Limpieza y Tabla Maestra GTFS
 ```bash
 python -m scripts.pipeline_limpieza
-```
-
-### 3. Construcción de la Tabla Analítica Maestra (`maestro_gtfs.parquet`)
-Ejecuta el ensamblaje relacional e inyección de variables de interacción en **Polars Lazy** verificando dinámicamente la preservación íntegra de los **2.232.015 tramos** y las **46 columnas**:
-```bash
 python -m scripts.construir_maestro_gtfs
 ```
 
+### 3. Verificación de Conectividad en Tiempo Real (`EMT` y `Tráfico Madrid`)
+```bash
+python -m scripts.test_conexion_api
+python -m scripts.capturar_trafico_madrid
+```
+
 ### 4. Ejecución de Tests Automatizados
-Valida las reglas de negocio, el aislamiento en cuarentena y los dominios físicos de las 46 columnas del fichero `.parquet` generado:
 ```bash
 pytest -v
 ```
@@ -122,6 +132,6 @@ pytest -v
 
 - [x] **Fase 1 — Auditoría Exploratoria (EDA GTFS):** Análisis forense, visualización corporativa, cartografía estática/interactiva (`reports/`) y diccionarios de datos de las 8 tablas GTFS (`notebooks/01` a `08`).
 - [x] **Fase 2 — Ingeniería de Datos Estructural y Tabla Maestra:** Pipeline híbrido (`PyArrow` + `Polars Lazy`), modularización DRY (`src/utils.py`), auditoría relacional (`09_EDA_maestro.ipynb`), generación de `maestro_gtfs.parquet` (46 columnas) y validación dinámica con `pytest`.
-- [ ] **Fase 3 — Modelo 1 (*Baseline GTFS*):** Ingesta de tiempos reales EMT (`API MobilityLabs`), cálculo de la variable objetivo (`retraso_real_seg`) y entrenamiento del primer modelo base.
-- [ ] **Fase 4 — Enriquecimiento con Tráfico Urbano y Modelo 2:** Auditoría de sensores de tráfico del Ayuntamiento de Madrid (`10_EDA_trafico.ipynb`), cruce espacial con paradas EMT y entrenamiento del segundo modelo.
-- [ ] **Fase 5 — Enriquecimiento Meteorológico, Modelo 3 y Evaluación Comparativa:** Integración de variables climáticas (`11_EDA_meteorologia.ipynb`), entrenamiento del tercer modelo multimodal y auditoría comparativa final (`12_Comparativa_Modelos.ipynb`).
+- [x] **Fase 3A — Auditoría y Cruce Espacial de Tráfico Urbano:** Ingesta XML del Ayuntamiento de Madrid (`10_EDA_trafico.ipynb`), saneamiento técnico, cartografía interactiva y motor espacial ponderado *IDW 500 m* + respaldo *1.000 m* (`src/trafico.py`, `docs/10_trafico_Dict.md`), además de validación de acceso a la API MobilityLabs EMT.
+- [ ] **Fase 3B — Recolector Sincronizado Multi-Fuente y Modelo 1 (*Baseline GTFS*):** Captura sincronizada de llegadas reales EMT, cálculo de la variable objetivo (`retraso_real_seg`) y entrenamiento del primer modelo base.
+- [ ] **Fase 4 — Entrenamiento y Evaluación del Modelo 2 (*Contexto Vial*):** Acoplamiento de las métricas espaciales de `src/trafico.py` sobre el conjunto experimental y medición de ganancia respecto al Modelo 1.
