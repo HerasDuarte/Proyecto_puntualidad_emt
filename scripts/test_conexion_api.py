@@ -13,7 +13,7 @@ BASE_URL = "https://" + "openapi." + "emtmadrid.es/v2"
 def probar_conexion_emt():
     assert CLIENT_ID and PASSKEY, "Faltan EMT_CLIENT_ID o EMT_PASSKEY en el archivo .env"
 
-    # PASO 1: Identificarnos en recepción para obtener el pase temporal (accessToken)
+    # PASO 1: Autenticación para obtener el pase temporal (accessToken)
     url_login = f"{BASE_URL}/mobilitylabs/user/login/"
     headers_login = {
         "X-ClientId": CLIENT_ID,
@@ -23,18 +23,17 @@ def probar_conexion_emt():
     }
 
     resp_login = requests.get(url_login, headers=headers_login, timeout=15)
-    if resp_login.status_code != 200:
-        print(f"[AVISO HTTP {resp_login.status_code}] Respuesta exacta de la EMT: {resp_login.text}")
-        resp_login.raise_for_status()
-
+    resp_login.raise_for_status()
     datos_login = resp_login.json()
+
     if datos_login.get("code") not in ("00", "01"):
         raise RuntimeError(f"Error en login MobilityLabs: {datos_login}")
 
-    access_token = datos_login["data"]["accessToken"]
+    bloque_login = next(iter(datos_login.get("data", [])), {})
+    access_token = bloque_login["accessToken"]
     print("[OK] Paso 1 completado: Autenticación correcta en MobilityLabs EMT.")
 
-    # PASO 2: Usar el pase temporal para pedir tiempos reales de la Parada 78 (Neptuno)
+    # PASO 2: Consultar tiempos reales de llegada en la Parada 78 (Neptuno)
     stop_prueba = "78"
     url_arrives = f"{BASE_URL}/transport/busemtmad/stops/{stop_prueba}/arrives/"
     headers_api = {
@@ -54,7 +53,8 @@ def probar_conexion_emt():
     resp_arrives.raise_for_status()
     datos_arrives = resp_arrives.json()
 
-    llegadas = datos_arrives.get("data", [{}]).get("Arrive", [])
+    bloque_arrives = next(iter(datos_arrives.get("data", [])), {})
+    llegadas = bloque_arrives.get("Arrive", [])
     print(f"[OK] Paso 2 completado: {len(llegadas)} autobuses aproximándose ahora mismo a Neptuno:\n")
 
     for bus in llegadas[:5]:
@@ -67,4 +67,3 @@ def probar_conexion_emt():
 
 if __name__ == "__main__":
     probar_conexion_emt()
-    
