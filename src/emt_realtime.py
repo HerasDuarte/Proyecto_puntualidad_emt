@@ -1,8 +1,8 @@
 """
 Módulo de Ingesta en Tiempo Real de Llegadas EMT Madrid (API MobilityLabs v2).
 Implementa barrido rotativo estratificado (Round-Robin) sobre las 4.928 paradas EMT,
-renovación automática de token y control autónomo de cuota (tope de 4.500 peticiones
-por ciclo con pausa automática y reactivación programada a las 24h + 1 min).
+renovación automática de token y control autónomo de cuota diaria sincronizado con
+el reinicio UTC (00:00 UTC / 01:00 CET) con tope de seguridad de 4.500 peticiones/día.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -25,8 +25,6 @@ RUTA_STOPS_PROCESADO = Path("data/processed/stops_limpio.csv")
 RUTA_ESTADO_CUOTA = Path("data/raw/realtime/estado_cuota_emt.json")
 
 LIMITE_PETICIONES_CICLO = 4500
-HORAS_ESPERA_REINICIO = 24
-MINUTOS_MARGEN_REINICIO = 1
 
 
 def construir_lista_paradas_estratificada(ruta_stops: Path = RUTA_STOPS_PROCESADO) -> list[str]:
@@ -49,15 +47,28 @@ def construir_lista_paradas_estratificada(ruta_stops: Path = RUTA_STOPS_PROCESAD
 
 
 def _cargar_estado_cuota(ruta_estado: Path = RUTA_ESTADO_CUOTA) -> dict:
-    """Lee el estado persistente de cuota y puntero de rotación desde disco."""
+    """Lee el estado persistente de cuota diaria UTC y puntero de rotación desde disco."""
+    ahora_utc = datetime.now(timezone.utc)
+    hoy_utc_str = ahora_utc.strftime("%Y-%m-%d")
+
     if ruta_estado.exists():
         with open(ruta_estado, "r", encoding="utf-8") as f:
-            return json.load(f)
+            estado = json.load(f)
+        if estado.get("fecha_cuota_utc") != hoy_utc_str:
+            estado["fecha_cuota_utc"] = hoy_utc_str
+            estado["session_id"] = f"SES_{ahora_utc.strftime('%Y%m%d_%H%M%S')}"
+            estado["session_start_utc"] = ahora_utc.isoformat()
+            estado["last_request_utc"] = None
+            estado["next_allowed_start_utc"] = None
+            estado["peticiones_realizadas"] = 0
+            estado["en_pausa_cuota"] = False
+            _guardar_estado_cuota(estado, ruta_estado)
+        return estado
 
-    ahora_iso = datetime.now(timezone.utc).isoformat()
     return {
-        "session_id": f"SES_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
-        "session_start_utc": ahora_iso,
+        "fecha_cuota_utc": hoy_utc_str,
+        "session_id": f"SES_{ahora_utc.strftime('%Y%m%d_%H%M%S')}",
+        "session_start_utc": ahora_utc.isoformat(),
         "last_request_utc": None,
         "next_allowed_start_utc": None,
         "peticiones_realizadas": 0,
@@ -126,12 +137,12 @@ class ClienteEMTRealtime:
             "DateTime_Referenced_Incidencies_YYYYMMDD": ""
         }
 
-        resp = requests.post(url_arrives, headers=headers, json=payload, timeout=15)
+        resp = requests.post(url_arrives, headers=headers, json=payload, timeout=25)
 
         if resp.status_code == 401:
             self._autenticar()
             headers["accessToken"] = self.access_token
-            resp = requests.post(url_arrives, headers=headers, json=payload, timeout=15)
+            resp = requests.post(url_arrives, headers=headers, json=payload, timeout=25)
 
         resp.raise_for_status()
         datos = resp.json()
@@ -139,7 +150,7 @@ class ClienteEMTRealtime:
         if datos.get("code") == "80":
             self._autenticar()
             headers["accessToken"] = self.access_token
-            resp = requests.post(url_arrives, headers=headers, json=payload, timeout=15)
+            resp = requests.post(url_arrives, headers=headers, json=payload, timeout=25)
             resp.raise_for_status()
             datos = resp.json()
 
@@ -148,18 +159,16 @@ class ClienteEMTRealtime:
 
     def ejecutar_lote_rotativo(self, tamano_lote: int = 25) -> Tuple[pd.DataFrame, str]:
         """
-        Ejecuta un lote rotativo de consultas respetando el tope de cuota de 4.500
-        peticiones y la ventana de reactivación automática a las 24h + 1 min.
+        Ejecuta un lote rotativo de consultas respetando el tope diario de 4.500
+        peticiones y reiniciando automáticamente al cambiar de día UTC (00:01 UTC).
         Retorna (DataFrame con llegadas capturadas, estado_operativo).
         """
         ahora_utc = datetime.now(timezone.utc)
+        hoy_utc_str = ahora_utc.strftime("%Y-%m-%d")
 
-        if self.estado.get("en_pausa_cuota") and self.estado.get("next_allowed_start_utc"):
-            fecha_reactivacion = datetime.fromisoformat(self.estado["next_allowed_start_utc"])
-            if ahora_utc < fecha_reactivacion:
-                return pd.DataFrame(), f"STANDBY_CUOTA (Reactivación: {fecha_reactivacion.strftime('%Y-%m-%d %H:%M:%S')} UTC)"
-
-            logging.info("Ventana de 24h + 1 min completada. Iniciando nuevo ciclo de cuota EMT.")
+        if self.estado.get("fecha_cuota_utc") != hoy_utc_str:
+            logging.info(f"Nuevo día UTC detectado ({hoy_utc_str}). Reiniciando contador diario a 0/{self.limite_ciclo}.")
+            self.estado["fecha_cuota_utc"] = hoy_utc_str
             self.estado["session_id"] = f"SES_{ahora_utc.strftime('%Y%m%d_%H%M%S')}"
             self.estado["session_start_utc"] = ahora_utc.isoformat()
             self.estado["last_request_utc"] = None
@@ -167,6 +176,10 @@ class ClienteEMTRealtime:
             self.estado["peticiones_realizadas"] = 0
             self.estado["en_pausa_cuota"] = False
             _guardar_estado_cuota(self.estado)
+
+        if self.estado.get("en_pausa_cuota"):
+            siguiente_dia_utc = (ahora_utc + timedelta(days=1)).replace(hour=0, minute=1, second=0, microsecond=0)
+            return pd.DataFrame(), f"STANDBY_CUOTA (Reinicio automático a las {siguiente_dia_utc.strftime('%Y-%m-%d %H:%M')} UTC)"
 
         restantes = self.limite_ciclo - self.estado["peticiones_realizadas"]
         if restantes <= 0:
@@ -206,15 +219,11 @@ class ClienteEMTRealtime:
             self.estado["last_request_utc"] = ts_consulta.isoformat()
 
         if self.estado["peticiones_realizadas"] >= self.limite_ciclo:
-            ultima_dt = datetime.fromisoformat(self.estado["last_request_utc"])
-            reactivacion_dt = ultima_dt + timedelta(
-                hours=HORAS_ESPERA_REINICIO,
-                minutes=MINUTOS_MARGEN_REINICIO
-            )
+            reactivacion_dt = (ahora_utc + timedelta(days=1)).replace(hour=0, minute=1, second=0, microsecond=0)
             self.estado["en_pausa_cuota"] = True
             self.estado["next_allowed_start_utc"] = reactivacion_dt.isoformat()
             logging.warning(
-                f"Tope de seguridad alcanzado ({self.limite_ciclo} peticiones). "
+                f"Tope diario alcanzado ({self.limite_ciclo} peticiones). "
                 f"EMT en pausa automática hasta {reactivacion_dt.strftime('%Y-%m-%d %H:%M:%S')} UTC."
             )
 
