@@ -130,8 +130,8 @@ Copia `.env.example` a `.env` e introduce tus credenciales gratuitas del portal 
 
 ## 📡 Estado de Captura en Tiempo Real y Aprendizaje Continuo
 
-* **Inicio oficial de la campaña de recolección:** **`18/11/2026 a las 18:30 CET`** mediante el orquestador sincronizado `scripts/ejecutar_ingesta_realtime.py` (barrido rotativo sobre las **4.928 paradas EMT** con tope autónomo de **4.500 peticiones/24h**, estado del tráfico municipal cada **5 minutos** y meteorología de Madrid cada **15 minutos**).
-* **Arquitectura de producción continua:** Despliegue previsto en servidor Linux dedicado 24/7 (*Always-Free Cloud VM*) para garantizar cobertura ininterrumpida en todas las franjas horarias y ejecutar el ciclo periódico de reentrenamiento acumulativo sobre el histórico capturado.
+* **Inicio oficial de la campaña de recolección:** **`18/11/2026 a las 18:30 CET`** mediante el orquestador sincronizado `scripts/ejecutar_ingesta_realtime.py` (barrido rotativo sobre las **4.928 paradas EMT** con reinicio automático diario UTC de **4.500 peticiones/día**, estado del tráfico municipal cada **5 minutos** y meteorología de Madrid cada **15 minutos**).
+* **Arquitectura de producción continua:** Despliegue previsto en servidor Linux dedicado 24/7 para garantizar cobertura ininterrumpida en todas las franjas horarias y ejecutar el ciclo periódico de reentrenamiento acumulativo sobre el histórico capturado.
 
 ---
 
@@ -139,7 +139,8 @@ Copia `.env.example` a `.env` e introduce tus credenciales gratuitas del portal 
 
 - [x] **Fase 1 — Auditoría Exploratoria (EDA GTFS):** Análisis forense, visualización corporativa, cartografía estática/interactiva (`reports/`) y diccionarios de datos de las 8 tablas GTFS (`notebooks/01` a `08`).
 - [x] **Fase 2 — Ingeniería de Datos Estructural y Tabla Maestra:** Pipeline híbrido (`PyArrow` + `Polars Lazy`), modularización DRY (`src/utils.py`), auditoría relacional (`09_EDA_maestro.ipynb`), generación de `maestro_gtfs.parquet` (46 columnas) y validación dinámica con `pytest`.
-- [x] **Fase 3A — Auditoría Espacial de Tráfico y Orquestador Multi-Fuente:** Ingesta XML del Ayuntamiento de Madrid (`10_EDA_trafico.ipynb`), motor espacial *IDW* (`src/trafico.py`), conector meteorológico 15 min (`src/meteorologia.py`), recolector rotativo EMT con control de cuota (`src/emt_realtime.py`) y orquestador continuo en producción (`scripts/ejecutar_ingesta_realtime.py`).
+- [x] **Fase 3A — Auditoría Espacial de Tráfico y Orquestador Multi-Fuente:** Ingesta XML del Ayuntamiento de Madrid (`10_EDA_trafico.ipynb`), motor espacial *IDW* (`src/trafico.py`), conector meteorológico 15 min (`src/meteorologia.py`), recolector rotativo EMT con reinicio diario UTC (`src/emt_realtime.py`) y orquestador continuo en producción (`scripts/ejecutar_ingesta_realtime.py`).
 - [ ] **Fase 3B — EDAs Dinámicos (`11_EDA_meteorologia.ipynb` y `12_EDA_llegadas_emt.ipynb`) y Modelo 1 (*Baseline GTFS*):** Auditoría de las capturas en vivo, cálculo de la variable objetivo (`retraso_real_seg`) contra `maestro_gtfs.parquet` y entrenamiento del primer modelo base.
 - [ ] **Fase 4 — Entrenamiento y Evaluación del Modelo 2 (*Contexto Vial*):** Acoplamiento temporal y espacial de las métricas de `src/trafico.py` sobre el conjunto experimental y medición de ganancia respecto al Modelo 1.
 - [ ] **Fase 5 — Enriquecimiento Meteorológico, Modelo 3 y Evaluación Comparativa:** Integración de variables climáticas de 15 min, entrenamiento del tercer modelo multimodal y auditoría comparativa final (`13_Comparativa_Modelos.ipynb`).
+
