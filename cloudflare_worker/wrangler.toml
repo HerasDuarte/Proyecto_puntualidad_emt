@@ -1,0 +1,15 @@
+name = "orquestador-emt-madrid"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "emt-madrid-db"
+database_id = "6018f715-44e9-4ecb-a6a4-0e1929119a2b"
+
+[triggers]
+crons = [
+  "*/3 * * * *",
+  "*/5 * * * *",
+  "*/15 * * * *"
+]

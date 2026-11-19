@@ -34,3 +34,8 @@ models/*.cbm
 # Sistema Operativo
 .DS_Store
 Thumbs.db
+
+# Cloudflare Worker (dependencias y caché local de Wrangler)
+cloudflare_worker/node_modules/
+cloudflare_worker/.wrangler/
+.dev.vars
