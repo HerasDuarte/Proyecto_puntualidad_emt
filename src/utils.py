@@ -100,3 +100,15 @@ def clasificar_territorio_avanzado(ratio):
     elif ratio <= 0.60: return 'Transversal\nEquilibrada (30-60%)'
     else: return 'Transversal\nInvasiva (>60%)'
 
+def firmar_grafico_emt(fig) -> None:
+    """Añade la atribución oficial exigida por MobilityLabs EMT al pie de la figura."""
+    fig.text(
+        0.99,
+        0.005,
+        "Fuente: Powered by EMT de Madrid (http://emtmadrid.es) | Ayuntamiento de Madrid | AEMET",
+        ha="right",
+        va="bottom",
+        fontsize=8,
+        color="#555555",
+        style="italic",
+    )

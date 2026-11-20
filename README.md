@@ -134,7 +134,8 @@ Copia `.env.example` a `.env` e introduce tus credenciales gratuitas del portal 
 * **Cadencia sincronizada multi-fuente:**
   * **EMT Madrid (`*/3 * * * *`):** Barrido rotativo estratificado sobre las **4.928 paradas** con reinicio automático diario UTC (`4.500` peticiones/día).
   * **Tráfico Municipal (`*/5 * * * *`):** Captura del boletín en vivo del Ayuntamiento de Madrid comprimido en **GZIP** y saneado al sincronizar.
-  * **Meteorología Madrid (`*/15 * * * *`):** Registro climático periódico acoplado al horizonte de predicción.
+  * **Meteorología Madrid (`*/15 * * * *`):** Observaciones instrumentales reales de la estación **AEMET OpenData (`3195` Madrid-Retiro)** con respaldo automático (`7Timer!`).
+
 * **Sincronización transaccional (`scripts/sincronizar_desde_cloudflare.py`):** Descarga los registros acumulados desde D1, los anexa deduplicados en `data/raw/realtime/*.parquet` y purga únicamente los IDs ya verificados en disco.
 
 ---
@@ -147,3 +148,11 @@ Copia `.env.example` a `.env` e introduce tus credenciales gratuitas del portal 
 - [ ] **Fase 3B — EDAs Dinámicos (`11_EDA_meteorologia.ipynb` y `12_EDA_llegadas_emt.ipynb`) y Modelo 1 (*Baseline GTFS*):** Auditoría de las capturas en vivo, cálculo de la variable objetivo (`retraso_real_seg`) contra `maestro_gtfs.parquet` y entrenamiento del primer modelo base.
 - [ ] **Fase 4 — Entrenamiento y Evaluación del Modelo 2 (*Contexto Vial*):** Acoplamiento temporal y espacial de las métricas de `src/trafico.py` sobre el conjunto experimental y medición de ganancia respecto al Modelo 1.
 - [ ] **Fase 5 — Enriquecimiento Meteorológico, Modelo 3 y Evaluación Comparativa:** Integración de variables climáticas de 15 min, entrenamiento del tercer modelo multimodal y auditoría comparativa final (`13_Comparativa_Modelos.ipynb`).
+
+---
+
+## 📜 Atribución de Fuentes de Datos
+
+* **Transporte Público y Tiempos de Llegada (GTFS y API Realtime):** *Powered by [EMT de Madrid](http://emtmadrid.es)* (Portal de Datos Abiertos MobilityLabs).
+* **Tráfico Urbano:** Datos Abiertos del [Ayuntamiento de Madrid](https://madrid.es) (`informo.madrid.es`).
+* **Meteorología:** Agencia Estatal de Meteorología — [AEMET OpenData](https://aemet.es) (Estación `3195` Madrid-Retiro).
