@@ -5,6 +5,7 @@ export interface Env {
   EMT_CLIENT_ID: string;
   EMT_PASSKEY: string;
   SYNC_SECRET_TOKEN: string;
+  AEMET_API_KEY: string;
 }
 
 const BASE_URL_EMT = "https://" + "openapi." + "emtmadrid.es/v2";
@@ -38,29 +39,61 @@ async function capturarMeteorologia(env: Env, ahoraIso: string): Promise<string>
     "Accept": "application/json",
   };
 
-  // 1. Intento Open-Meteo
-  const resp = await fetch(URL_OPEN_METEO, { headers: cabeceras });
-  if (resp.ok) {
-    const data: any = await resp.json();
-    const c = data.current || {};
-    await env.DB.prepare(
-      `INSERT INTO meteo_madrid (
-        timestamp_captura_utc, timestamp_api_madrid, temperatura_c, sensacion_termica_c,
-        humedad_relativa_pct, es_de_dia, precipitacion_mm, lluvia_mm, nevadas_cm,
-        visibilidad_m, codigo_tiempo_wmo, viento_velocidad_kmh, viento_rachas_kmh
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-      .bind(
-        ahoraIso, c.time ?? null, c.temperature_2m ?? null, c.apparent_temperature ?? null,
-        c.relative_humidity_2m ?? null, c.is_day ?? null, c.precipitation ?? null,
-        c.rain ?? null, c.snowfall ?? null, c.visibility ?? null, c.weather_code ?? null,
-        c.wind_speed_10m ?? null, c.wind_gusts_10m ?? null
-      )
-      .run();
-    return `METEO OK Open-Meteo (${c.temperature_2m}°C)`;
+  // 1. Fuente Primaria: AEMET OpenData - Estación 3195 (Madrid-Retiro, observación cada 10 min)
+  if (env.AEMET_API_KEY) {
+    try {
+      const urlMeta =
+        "https://" + "opendata." + "aemet.es/opendata/api/observacion/convencional/datos/estacion/3195" +
+        `?api_key=${encodeURIComponent(env.AEMET_API_KEY)}`;
+      const respMeta = await fetch(urlMeta, { headers: cabeceras });
+      if (respMeta.ok) {
+        const meta: any = await respMeta.json();
+        if (meta?.estado === 200 && meta?.datos) {
+          const respDatos = await fetch(meta.datos, { headers: cabeceras });
+          if (respDatos.ok) {
+            const listaObs: any = await respDatos.json();
+            const obs = Array.isArray(listaObs) && listaObs.length > 0 ? listaObs.at(-1) : null;
+            if (obs) {
+              const precMm = obs.prec != null ? Number(obs.prec) : 0;
+              const vientoKmh = obs.vv != null ? Number(obs.vv) * 3.6 : null;
+              const rachasKmh = obs.vmax != null ? Number(obs.vmax) * 3.6 : null;
+              const visKm = obs.vis != null ? Number(obs.vis) : null;
+              const horaLocal = new Date().getHours();
+
+              await env.DB.prepare(
+                `INSERT INTO meteo_madrid (
+                  timestamp_captura_utc, timestamp_api_madrid, temperatura_c, sensacion_termica_c,
+                  humedad_relativa_pct, es_de_dia, precipitacion_mm, lluvia_mm, nevadas_cm,
+                  visibilidad_m, codigo_tiempo_wmo, viento_velocidad_kmh, viento_rachas_kmh
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+              )
+                .bind(
+                  ahoraIso,
+                  obs.fint ?? ahoraIso,
+                  obs.ta != null ? Number(obs.ta) : null,
+                  obs.ta != null ? Number(obs.ta) : null,
+                  obs.hr != null ? Number(obs.hr) : null,
+                  horaLocal >= 7 && horaLocal <= 20 ? 1 : 0,
+                  precMm,
+                  precMm,
+                  0,
+                  visKm != null ? visKm * 1000 : 10000,
+                  null,
+                  vientoKmh,
+                  rachasKmh
+                )
+                .run();
+              return `METEO OK AEMET-Retiro (${obs.ta}°C, prec=${precMm}mm, obs=${obs.fint})`;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Aviso AEMET, activando respaldo 7Timer:", err);
+    }
   }
 
-  // 2. Fuente abierta 7Timer! (sin clave y compatible con IPs de Cloudflare)
+  // 2. Respaldo automático: 7Timer!
   const url7Timer = "https://" + "www." + "7timer.info/bin/civil.php?lon=-3.7038&lat=40.4168&ac=0&unit=metric&output=json&tzshift=0";
   const resp7 = await fetch(url7Timer, { headers: cabeceras });
   if (!resp7.ok) throw new Error(`HTTP 7Timer: ${resp7.status}`);
@@ -97,7 +130,7 @@ async function capturarMeteorologia(env: Env, ahoraIso: string): Promise<string>
     )
     .run();
 
-  return `METEO OK 7Timer (${p.temp2m}°C, prec=${precTipo})`;
+  return `METEO OK 7Timer-Backup (${p.temp2m}°C, prec=${precTipo})`;
 }
 
 
@@ -330,6 +363,7 @@ export default {
 
     return Response.json({
       servicio: "Orquestador Tiempo Real EMT Madrid (Cloudflare Workers)",
+      atribucion: "Powered by EMT de Madrid (http://emtmadrid.es)",
       estado_cuota_emt: estado || "Esperando primer cron...",
       filas_pendientes_descarga: {
         emt_llegadas: cEmt?.total ?? 0,
