@@ -132,7 +132,7 @@ Copia `.env.example` a `.env` e introduce tus credenciales gratuitas del portal 
 
 * **Inicio oficial de la campaña de recolección:** **`18/11/2026 a las 18:30 CET`**, operando de forma ininterrumpida **24/7 en la nube** desde el **`19/11/2026`** mediante **Cloudflare Workers (`TypeScript`) + Cloudflare D1 (`SQLite`)**.
 * **Cadencia sincronizada multi-fuente:**
-  * **EMT Madrid (`*/3 * * * *`):** Barrido rotativo estratificado sobre las **4.928 paradas** con reinicio automático diario UTC (`4.500` peticiones/día).
+  * **EMT Madrid (`*/3 * * * *`):** Barrido rotativo estratificado continuo las **24 horas** (`10` paradas/lote = `4.800` paradas/día, recorriendo la red completa de **4.928 paradas** cada ~24,6h con reinicio automático diario UTC).
   * **Tráfico Municipal (`*/5 * * * *`):** Captura del boletín en vivo del Ayuntamiento de Madrid comprimido en **GZIP** y saneado al sincronizar.
   * **Meteorología Madrid (`*/15 * * * *`):** Observaciones instrumentales reales de la estación **AEMET OpenData (`3195` Madrid-Retiro)** con respaldo automático (`7Timer!`).
 

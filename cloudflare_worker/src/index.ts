@@ -17,8 +17,8 @@ const URL_OPEN_METEO =
   "precipitation,rain,snowfall,visibility,weather_code,wind_speed_10m,wind_gusts_10m" +
   "&timezone=Europe%2FMadrid";
 
-const LIMITE_DIARIO_EMT = 4500;
-const TAMANO_LOTE_EMT = 20;
+const LIMITE_DIARIO_EMT = 4900;
+const TAMANO_LOTE_EMT = 10;
 
 async function comprimirGzipBase64(texto: string): Promise<string> {
   const bytes = new TextEncoder().encode(texto);

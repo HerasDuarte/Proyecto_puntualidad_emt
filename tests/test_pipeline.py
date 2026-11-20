@@ -4,6 +4,15 @@ import polars as pl
 from pathlib import Path
 import sys
 import numpy as np
+import base64
+import gzip
+import json
+from datetime import datetime, timezone
+import matplotlib.pyplot as plt
+
+from src.emt_realtime import _cargar_estado_cuota
+from src.utils import firmar_grafico_emt
+from scripts.sincronizar_desde_cloudflare import _parsear_xml_trafico_gzip
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(ROOT_DIR))
@@ -258,3 +267,66 @@ def test_emt_rotacion_estratificada_y_control_cuota(monkeypatch):
     df_vacio, estado_pausa = cliente.ejecutar_lote_rotativo(tamano_lote=5)
     assert df_vacio.empty
     assert "STANDBY_CUOTA" in estado_pausa
+
+def test_reinicio_diario_cuota_utc(tmp_path):
+    """Verifica que el cambio de fecha UTC reinicia peticiones y pausa conservando el índice."""
+    ruta_estado = tmp_path / "estado_cuota_emt.json"
+    estado_ayer = {
+        "fecha_cuota_utc": "2020-01-01",
+        "peticiones_realizadas": 4500,
+        "indice_parada_actual": 1452,
+        "en_pausa_cuota": True,
+    }
+    ruta_estado.write_text(json.dumps(estado_ayer), encoding="utf-8")
+
+    estado_hoy = _cargar_estado_cuota(ruta_estado)
+    hoy_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    assert estado_hoy["fecha_cuota_utc"] == hoy_utc
+    assert estado_hoy["peticiones_realizadas"] == 0
+    assert estado_hoy["en_pausa_cuota"] is False
+    assert estado_hoy["indice_parada_actual"] == 1452
+
+
+def test_parsear_xml_trafico_gzip_sanea_y_filtra():
+    """Valida descompresión GZIP, saneamiento de ampersand suelto y filtrado de sensores averiados."""
+    xml_raw = """<?xml version="1.0" encoding="UTF-8"?>
+    <pms>
+      <fecha_hora>20/11/2026 10:00:00</fecha_hora>
+      <pm>
+        <idelem>1001</idelem>
+        <descripcion>Castellana & Goya</descripcion>
+        <tipo_elem>URB</tipo_elem>
+        <intensidad>520</intensidad>
+        <ocupacion>14</ocupacion>
+        <carga>32</carga>
+        <nivelServicio>1</nivelServicio>
+        <velocidad>45</velocidad>
+        <error>N</error>
+        <st_x>441234,5</st_x>
+        <st_y>4475123,2</st_y>
+      </pm>
+      <pm>
+        <idelem>9999</idelem>
+        <descripcion>Sensor Averiado</descripcion>
+        <error>S</error>
+      </pm>
+    </pms>"""
+    xml_gzip_b64 = base64.b64encode(gzip.compress(xml_raw.encode("utf-8"))).decode("ascii")
+
+    df = _parsear_xml_trafico_gzip(xml_gzip_b64, "2026-11-20T09:00:00Z")
+
+    assert len(df) == 1
+    assert df.iloc[0]["idelem"] == "1001"
+    assert df.iloc[0]["intensidad"] == 520
+    assert df.iloc[0]["st_x"] == pytest.approx(441234.5)
+
+
+def test_firmar_grafico_emt_anade_atribucion():
+    """Comprueba que firmar_grafico_emt inserta el texto legal requerido por MobilityLabs."""
+    fig, _ = plt.subplots()
+    firmar_grafico_emt(fig)
+    textos = [t.get_text() for t in fig.texts]
+    plt.close(fig)
+
+    assert any("Powered by EMT de Madrid" in txt for txt in textos)

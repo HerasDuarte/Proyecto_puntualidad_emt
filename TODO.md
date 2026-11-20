@@ -4,7 +4,7 @@ Registro operativo de tareas de ingeniería de datos, captura en tiempo real y m
 
 > **📡 Bitácora de Despliegue Continuo en Tiempo Real (24/7):**
 > * **Inicio oficial de ingesta sincronizada (`EMT + Tráfico + Meteorología`):** `18/11/2026 a las 18:30 CET` mediante orquestador local (`scripts/ejecutar_ingesta_realtime.py`).
-> * **Migración a Arquitectura Serverless 24/7 (`19/11/2026`):** Desplegado en producción continua sobre **Cloudflare Workers (`TypeScript`) + Cloudflare D1 (`SQLite`)** con `Cron Triggers` exactos (`*/3` EMT con reinicio diario UTC de `4.500` reqs/día, `*/5` Tráfico municipal comprimido con GZIP y `*/15` Meteorología) y sincronización transaccional a `.parquet` locales mediante `scripts/sincronizar_desde_cloudflare.py`.
+> * **Migración a Arquitectura Serverless 24/7 (`19/11/2026`):** Desplegado en producción continua sobre **Cloudflare Workers (`TypeScript`) + Cloudflare D1 (`SQLite`)** con `Cron Triggers` exactos (`*/3` EMT con cobertura continua 24h de `10` paradas/lote y tope diario UTC de `4.900` reqs/día, `*/5` Tráfico municipal comprimido con GZIP y `*/15` Meteorología AEMET) y sincronización transaccional a `.parquet` locales mediante `scripts/sincronizar_desde_cloudflare.py`.
 > * **Integración meteorológica oficial (`20/11/2026`):** Conectada la estación instrumental real **AEMET OpenData (`3195` Madrid-Retiro, observaciones cada 10 min)** como fuente primaria en `cloudflare_worker/src/index.ts`, manteniendo `7Timer!` como respaldo automático.
 
 
