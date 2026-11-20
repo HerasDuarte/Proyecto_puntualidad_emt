@@ -1,0 +1,52 @@
+[
+  {
+    "version_tag": "20261118_inicial",
+    "detectado_utc": "2026-11-18T00:00:00Z",
+    "tablas_modificadas": [
+      "routes.txt",
+      "stops.txt",
+      "calendar.txt",
+      "calendar_dates.txt",
+      "trips.txt",
+      "frequencies.txt",
+      "shapes.txt",
+      "stop_times.txt"
+    ],
+    "hashes_tablas": {
+      "routes.txt": "6eb26cf7e865e947123ae0bfa2cb4faf52a0d92d473b74d73ef44ea4356b0400",
+      "stops.txt": "33bd12567471c199637e21fd7369c3f8a2e772b6f9862985ec0de8d172b95ede",
+      "calendar.txt": "4bd6b88c1c1bc7cbd29d29647c667e0ef5229049556ac8d9587e9c8365e25b03",
+      "calendar_dates.txt": "608606e70adcbd56d157d1d20590bd908e93d8fee7adcd8ff34ead512d6608cc",
+      "trips.txt": "8cacc32c1797b00c1cd3ecff0b2f5fec781ef5cc978aad36dbe1694683bc457b",
+      "frequencies.txt": "64f511a8b7dccfb1de78151093afe088a526dd8c506d054deafba36901c189aa",
+      "shapes.txt": "dfaf8b3f826b3194ae625e7db7768476ad5fd5606cf1b35f338dcd8b22d9b69c",
+      "stop_times.txt": "31d615ee697e2e85c0f239861a9202407615222c2a99c84df58e167b4357edf2"
+    },
+    "ruta_maestro": "data\\processed\\maestro_gtfs.parquet"
+  },
+  {
+    "version_tag": "20261120",
+    "detectado_utc": "2026-11-20T22:31:18.016780+00:00",
+    "tablas_modificadas": [
+      "calendar.txt",
+      "calendar_dates.txt",
+      "frequencies.txt",
+      "routes.txt",
+      "shapes.txt",
+      "stop_times.txt",
+      "stops.txt",
+      "trips.txt"
+    ],
+    "hashes_tablas": {
+      "calendar.txt": "6adb4feb82318bd1442073ecec65d0e9bdbf7d3d231bc27d757bd76960cc8dee",
+      "calendar_dates.txt": "c9e09b6674942daa00c6798a57407cf2b04f99559e5d09a62c41d3d978df62c7",
+      "frequencies.txt": "ca928ef2bd9b8324c49b09cfeee62d2e31b771254c860e166a82eda3d0df9b51",
+      "routes.txt": "94b5273dc6448ebdebfbd02048e68ca2a7a09412325c9a3601086e4387a1c43f",
+      "shapes.txt": "6d610c20e4f716237bbc8b8e644844f417be3a55588a57fe34efc4e08e0013f3",
+      "stop_times.txt": "7a2794140b7993040f4618de7b4a55fad9b40458afd2a7f96f01aa4fd74f0a38",
+      "stops.txt": "90635caa0aeabfc3bd07fb571e2ba46211d06dafad0830c7c14cb42ac545b9b8",
+      "trips.txt": "d2ae6c658a75613ba8ecfdf88811c4d5a5ec6ceb35ed72b185e335a6b062b23d"
+    },
+    "ruta_maestro": "data\\processed\\maestro_gtfs_20261120.parquet"
+  }
+]

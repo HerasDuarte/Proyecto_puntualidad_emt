@@ -1,18 +1,27 @@
 """
-Sincronizador Seguro Nube -> Local (Cloudflare D1 -> data/raw/realtime/*.parquet).
-1. Descarga lotes pendientes de EMT, Tráfico (GZIP XML) y Meteorología desde Cloudflare.
+Sincronizador Seguro Nube -> Local + Vigilancia y Reconstrucción Automática Diaria GTFS.
+1. Descarga lotes pendientes de EMT, Tráfico (GZIP XML) y Meteorología desde Cloudflare D1.
 2. Descomprime el XML de tráfico y filtra únicamente los sensores operativos.
-3. Guarda/anexa los registros en los ficheros diarios .parquet locales.
-4. Verifica la escritura en disco y ordena a Cloudflare purgar solo los IDs descargados.
+3. Guarda/anexa los registros en data/raw/realtime/*.parquet y purga en Cloudflare D1.
+4. Audita diariamente las 8 tablas operativas de los EDAs GTFS (SHA-256),
+   excluyendo agency.txt y feed_info.txt, y relanza main.py para reconstruir
+   maestro_gtfs_YYYYMMDD.parquet si cambia cualquier tabla operativa.
 """
 
 import base64
+from datetime import datetime, timezone
 import gzip
+import hashlib
+import io
+import json
 import logging
 import os
 from pathlib import Path
 import re
+import subprocess
+import sys
 import xml.etree.ElementTree as ET
+import zipfile
 
 from dotenv import load_dotenv
 import pandas as pd
@@ -22,10 +31,26 @@ load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-DIR_REALTIME = Path("data/raw/realtime")
+DIR_RAW = Path("data/raw")
+DIR_PROCESSED = Path("data/processed")
+DIR_REALTIME = DIR_RAW / "realtime"
 DIR_EMT = DIR_REALTIME / "emt"
 DIR_TRAFICO = DIR_REALTIME / "trafico"
 DIR_METEO = DIR_REALTIME / "meteorologia"
+
+RUTA_HISTORIAL_GTFS = DIR_PROCESSED / "historial_versiones_gtfs.json"
+
+# Las 8 tablas exactas auditadas en los EDAs 01-08 (se excluyen agency.txt y feed_info.txt)
+TABLAS_GTFS_OPERATIVAS = (
+    "routes.txt",
+    "stops.txt",
+    "calendar.txt",
+    "calendar_dates.txt",
+    "trips.txt",
+    "frequencies.txt",
+    "shapes.txt",
+    "stop_times.txt",
+)
 
 
 def _anexar_parquet(df_nuevo: pd.DataFrame, ruta_parquet: Path, cols_dedup: list[str]) -> int:
@@ -128,9 +153,125 @@ def sincronizar_tabla(base_url: str, token: str, tabla: str) -> int:
 
     return total_descargadas
 
+def _descargar_zip_gtfs_oficial() -> bytes:
+    """Descarga directamente el paquete ZIP oficial gtfs_emt.zip desde datos.emtmadrid.es."""
+    url_gtfs_oficial = (
+        "https://" + "datos." + "emtmadrid.es/dataset/9b23259a-4491-494b-9695-36a7709b2c12"
+        "/resource/3cba2058-9833-422c-a704-bf992d31d2ee/download/gtfs_emt.zip"
+    )
+    resp_zip = requests.get(
+        url_gtfs_oficial,
+        headers={"User-Agent": "Mozilla/5.0 ProyectoPuntualidadEMT/1.0"},
+        timeout=90,
+    )
+    resp_zip.raise_for_status()
+
+    if not zipfile.is_zipfile(io.BytesIO(resp_zip.content)):
+        raise ValueError("El archivo descargado desde datos.emtmadrid.es no es un ZIP válido.")
+    return resp_zip.content
+
+def _calcular_hashes_operativos_zip(zip_bytes: bytes) -> dict[str, str]:
+    """Calcula el SHA-256 de las 8 tablas operativas de los EDAs GTFS."""
+    hashes = dict()
+    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+        for nombre in sorted(zf.namelist()):
+            nombre_limpio = Path(nombre).name
+            if nombre_limpio in TABLAS_GTFS_OPERATIVAS:
+                hashes[nombre_limpio] = hashlib.sha256(zf.read(nombre)).hexdigest()
+    return hashes
+
+def auditar_y_actualizar_gtfs_diario() -> bool:
+    """
+    Audita diariamente las 8 tablas operativas del GTFS oficial de EMT Madrid.
+    Si detecta cambios en alguna tabla operativa, guarda copia versionada y
+    ejecuta scripts/pipeline_limpieza.py + scripts/construir_maestro_gtfs.py
+    tras respaldar el maestro_gtfs.parquet anterior.
+    """
+    DIR_PROCESSED.mkdir(parents=True, exist_ok=True)
+    historial = list()
+    if RUTA_HISTORIAL_GTFS.exists():
+        historial = json.loads(RUTA_HISTORIAL_GTFS.read_text(encoding="utf-8"))
+
+    try:
+        zip_bytes = _descargar_zip_gtfs_oficial()
+    except Exception as exc:
+        logging.warning(f"[GTFS] No se pudo verificar actualización diaria hoy ({exc}). Se mantiene versión vigente.")
+        return False
+
+    hashes_remotos = _calcular_hashes_operativos_zip(zip_bytes)
+
+    if not historial:
+        hashes_locales = dict()
+        dir_gtfs_origen = DIR_RAW / "gtfs"
+        for tabla in TABLAS_GTFS_OPERATIVAS:
+            ruta_tabla = dir_gtfs_origen / tabla
+            if ruta_tabla.exists():
+                hashes_locales[tabla] = hashlib.sha256(ruta_tabla.read_bytes()).hexdigest()
+
+        hashes_base = hashes_locales if hashes_locales else hashes_remotos
+        historial.append({
+            "version_tag": "20261118_inicial",
+            "detectado_utc": "2026-11-18T00:00:00Z",
+            "tablas_modificadas": list(hashes_base.keys()),
+            "hashes_tablas": hashes_base,
+            "ruta_maestro": str(DIR_PROCESSED / "maestro_gtfs.parquet"),
+        })
+        RUTA_HISTORIAL_GTFS.write_text(json.dumps(historial, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    ultimo_registro = historial[-1]
+    hashes_previos = ultimo_registro.get("hashes_tablas", dict())
+
+    tablas_cambiadas = [
+        tabla for tabla, h in hashes_remotos.items()
+        if hashes_previos.get(tabla) != h
+    ]
+
+    if not tablas_cambiadas:
+        logging.info(f"[GTFS] Auditoría diaria OK: sin cambios en las 8 tablas operativas (vigente: {ultimo_registro['version_tag']}).")
+        return False
+
+    etiqueta_hoy = datetime.now(timezone.utc).strftime("%Y%m%d")
+    dir_version = DIR_RAW / f"gtfs_{etiqueta_hoy}"
+    dir_version.mkdir(parents=True, exist_ok=True)
+    dir_gtfs_activo = DIR_RAW / "gtfs"
+    dir_gtfs_activo.mkdir(parents=True, exist_ok=True)
+
+    logging.warning(f"[GTFS] ¡Cambio detectado en tablas: {', '.join(tablas_cambiadas)}! Reconstruyendo versión {etiqueta_hoy}...")
+
+    ruta_maestro_vigente = DIR_PROCESSED / "maestro_gtfs.parquet"
+    if ruta_maestro_vigente.exists():
+        ruta_respaldo = DIR_PROCESSED / f"maestro_gtfs_previo_{etiqueta_hoy}.parquet"
+        if not ruta_respaldo.exists():
+            ruta_respaldo.write_bytes(ruta_maestro_vigente.read_bytes())
+            logging.info(f"[GTFS] Copia de seguridad creada en {ruta_respaldo}.")
+
+    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+        for nombre in zf.namelist():
+            nombre_limpio = Path(nombre).name
+            if nombre_limpio in TABLAS_GTFS_OPERATIVAS:
+                contenido = zf.read(nombre)
+                (dir_version / nombre_limpio).write_bytes(contenido)
+                (dir_gtfs_activo / nombre_limpio).write_bytes(contenido)
+
+    subprocess.run([sys.executable, "scripts/pipeline_limpieza.py"], check=True)
+    subprocess.run([sys.executable, "scripts/construir_maestro_gtfs.py"], check=True)
+
+    ruta_maestro_versionado = DIR_PROCESSED / f"maestro_gtfs_{etiqueta_hoy}.parquet"
+    ruta_maestro_versionado.write_bytes(ruta_maestro_vigente.read_bytes())
+
+    historial.append({
+        "version_tag": etiqueta_hoy,
+        "detectado_utc": datetime.now(timezone.utc).isoformat(),
+        "tablas_modificadas": tablas_cambiadas,
+        "hashes_tablas": hashes_remotos,
+        "ruta_maestro": str(ruta_maestro_versionado),
+    })
+    RUTA_HISTORIAL_GTFS.write_text(json.dumps(historial, indent=2, ensure_ascii=False), encoding="utf-8")
+    logging.info(f"[GTFS] Nueva versión {etiqueta_hoy} integrada y reconstruida en {ruta_maestro_versionado}.")
+    return True
 
 def ejecutar_sincronizacion() -> None:
-    """Punto de entrada principal de sincronización nube -> disco local."""
+    """Punto de entrada principal de sincronización nube -> disco local + vigilancia diaria GTFS."""
     base_url = os.getenv("CLOUDFLARE_WORKER_URL", "").strip().rstrip("/")
     token = os.getenv("SYNC_SECRET_TOKEN", "").strip()
     if not base_url or not token:
@@ -140,6 +281,8 @@ def ejecutar_sincronizacion() -> None:
     for tabla in ("emt_llegadas", "trafico_xml_raw", "meteo_madrid"):
         n = sincronizar_tabla(base_url, token, tabla)
         logging.info(f"Resumen [{tabla}]: {n} registros nuevos incorporados a data/raw/realtime/.")
+
+    auditar_y_actualizar_gtfs_diario()
 
 
 if __name__ == "__main__":
