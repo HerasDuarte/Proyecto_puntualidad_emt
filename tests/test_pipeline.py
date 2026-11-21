@@ -100,7 +100,8 @@ def test_existencia_archivos_procesados():
 def test_ausencia_cuarentenas_en_produccion():
     """Verifica que las cuarentenas tras actualizaciones GTFS sean inexistentes o estrictamente residuales (<1%)."""
     processed_dir = ROOT_DIR / 'data' / 'processed'
-    cuarentenas = list(processed_dir.glob('quarantine_*.csv'))
+    cuarentena_dir = processed_dir / 'cuarentena'
+    cuarentenas = list(cuarentena_dir.glob('quarantine_*.csv')) if cuarentena_dir.exists() else list()
     total_maestro = len(pd.read_parquet(processed_dir / 'maestro_gtfs.parquet', columns=['trip_id']))
 
     for archivo_q in cuarentenas:
@@ -380,11 +381,12 @@ def test_calcular_hashes_operativos_excluye_agency_y_feed_info():
     assert "agency.txt" not in hashes
     assert "feed_info.txt" not in hashes
 
-
 def test_auditoria_gtfs_ignora_cambios_en_agency(tmp_path, monkeypatch):
     """Comprueba que cambiar solo agency.txt no dispara reconstrucción del maestro GTFS."""
     dir_raw = tmp_path / "raw"
     dir_proc = tmp_path / "processed"
+    dir_cuar = dir_proc / "cuarentena"
+    dir_vers = dir_proc / "versiones_gtfs"
     (dir_raw / "gtfs").mkdir(parents=True)
     dir_proc.mkdir(parents=True)
 
@@ -395,20 +397,23 @@ def test_auditoria_gtfs_ignora_cambios_en_agency(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sync_cf, "DIR_RAW", dir_raw)
     monkeypatch.setattr(sync_cf, "DIR_PROCESSED", dir_proc)
-    monkeypatch.setattr(sync_cf, "RUTA_HISTORIAL_GTFS", dir_proc / "historial_versiones_gtfs.json")
+    monkeypatch.setattr(sync_cf, "DIR_CUARENTENA", dir_cuar)
+    monkeypatch.setattr(sync_cf, "DIR_VERSIONES_GTFS", dir_vers)
+    monkeypatch.setattr(sync_cf, "RUTA_HISTORIAL_GTFS", dir_vers / "historial_versiones_gtfs.json")
 
     zip_v2 = _crear_zip_gtfs_sintetico(contenido_agency="EMT,Telefono_Nuevo_900")
     with patch.object(sync_cf, "_descargar_zip_gtfs_oficial", return_value=zip_v2):
         hubo_cambio = sync_cf.auditar_y_actualizar_gtfs_diario()
 
     assert hubo_cambio is False
-    assert (dir_proc / "historial_versiones_gtfs.json").exists()
-
+    assert (dir_vers / "historial_versiones_gtfs.json").exists()
 
 def test_auditoria_gtfs_reconstruye_ante_cambio_en_calendar(tmp_path, monkeypatch):
     """Valida respaldo previo, archivado versionado y reconstrucción al cambiar calendar.txt."""
     dir_raw = tmp_path / "raw"
     dir_proc = tmp_path / "processed"
+    dir_cuar = dir_proc / "cuarentena"
+    dir_vers = dir_proc / "versiones_gtfs"
     (dir_raw / "gtfs").mkdir(parents=True)
     dir_proc.mkdir(parents=True)
 
@@ -422,7 +427,9 @@ def test_auditoria_gtfs_reconstruye_ante_cambio_en_calendar(tmp_path, monkeypatc
 
     monkeypatch.setattr(sync_cf, "DIR_RAW", dir_raw)
     monkeypatch.setattr(sync_cf, "DIR_PROCESSED", dir_proc)
-    monkeypatch.setattr(sync_cf, "RUTA_HISTORIAL_GTFS", dir_proc / "historial_versiones_gtfs.json")
+    monkeypatch.setattr(sync_cf, "DIR_CUARENTENA", dir_cuar)
+    monkeypatch.setattr(sync_cf, "DIR_VERSIONES_GTFS", dir_vers)
+    monkeypatch.setattr(sync_cf, "RUTA_HISTORIAL_GTFS", dir_vers / "historial_versiones_gtfs.json")
 
     zip_navidad = _crear_zip_gtfs_sintetico(contenido_calendar="S1,1,1,1,1,1,0,0,20261221,20270107")
 
@@ -435,13 +442,12 @@ def test_auditoria_gtfs_reconstruye_ante_cambio_en_calendar(tmp_path, monkeypatc
         hubo_cambio = sync_cf.auditar_y_actualizar_gtfs_diario()
 
     assert hubo_cambio is True
-    respaldos = list(dir_proc.glob("maestro_gtfs_previo_*.parquet"))
-    versionados = list(dir_proc.glob("maestro_gtfs_20*.parquet"))
+    respaldos = list(dir_vers.glob("maestro_gtfs_previo_*.parquet"))
+    versionados = list(dir_vers.glob("maestro_gtfs_20*.parquet"))
     assert len(respaldos) == 1
-    assert respaldos[0].read_bytes() == b"MAESTRO_V1_BYTES"
+    assert next(iter(respaldos)).read_bytes() == b"MAESTRO_V1_BYTES"
     assert len(versionados) == 1
-    assert versionados[0].read_bytes() == b"MAESTRO_NAVIDAD_V2_BYTES"
-
+    assert next(iter(versionados)).read_bytes() == b"MAESTRO_NAVIDAD_V2_BYTES"
 
 def test_anexar_parquet_evita_duplicados(tmp_path):
     """Comprueba que _anexar_parquet deduplica registros repetidos por clave compuesta."""
@@ -465,17 +471,18 @@ def test_anexar_parquet_evita_duplicados(tmp_path):
 def test_reconciliar_cuarentenas_gtfs_rescate_y_purga(tmp_path, monkeypatch):
     """Verifica que reconciliar_cuarentenas_gtfs elimina archivos obsoletos al rescatarse los registros."""
     dir_proc = tmp_path / "processed"
-    dir_proc.mkdir(parents=True)
+    dir_cuar = dir_proc / "cuarentena"
+    dir_cuar.mkdir(parents=True)
     monkeypatch.setattr(sync_cf, "DIR_PROCESSED", dir_proc)
+    monkeypatch.setattr(sync_cf, "DIR_CUARENTENA", dir_cuar)
 
-    # 1. Crear dos archivos de cuarentena previos: uno totalmente rescatable y otro parcialmente huérfano
-    q_trips = dir_proc / "quarantine_trips.csv"
+    q_trips = dir_cuar / "quarantine_trips.csv"
     pd.DataFrame([
         {"trip_id": "FE8420011", "route_id": "842"},
         {"trip_id": "FE8420012", "route_id": "842"},
     ]).to_csv(q_trips, index=False)
 
-    q_freqs = dir_proc / "quarantine_frequencies.csv"
+    q_freqs = dir_cuar / "quarantine_frequencies.csv"
     pd.DataFrame([
         {"trip_id": "FE8420011", "headway_secs": 300},
         {"trip_id": "T_ROTO_999", "headway_secs": 600},
@@ -483,7 +490,6 @@ def test_reconciliar_cuarentenas_gtfs_rescate_y_purga(tmp_path, monkeypatch):
 
     claves_previas = sync_cf._leer_claves_cuarentena()
 
-    # 2. Simular nuevo maestro_gtfs.parquet donde la línea 842 ya fue completada por EMT
     ruta_maestro = dir_proc / "maestro_gtfs.parquet"
     pd.DataFrame([
         {"trip_id": "FE8420011", "route_id": "842"},
@@ -492,11 +498,8 @@ def test_reconciliar_cuarentenas_gtfs_rescate_y_purga(tmp_path, monkeypatch):
 
     rescatados = sync_cf.reconciliar_cuarentenas_gtfs(claves_previas, ruta_maestro)
 
-    # FE8420011, FE8420012 (2 trips) + 842 (1 route) = 3 claves recuperadas
     assert rescatados == 3
-    # quarantine_trips.csv quedó vacío tras el rescate -> debe haber sido eliminado
     assert not q_trips.exists()
-    # quarantine_frequencies.csv conserva únicamente el registro que sigue huérfano
     assert q_freqs.exists()
     df_restante = pd.read_csv(q_freqs)
     assert list(df_restante["trip_id"]) == ["T_ROTO_999"]

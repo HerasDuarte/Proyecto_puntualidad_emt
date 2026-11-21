@@ -4,28 +4,32 @@ Sincronizador Seguro Nube -> Local + Vigilancia y Reconstrucción Automática Di
 2. Descomprime el XML de tráfico y filtra únicamente los sensores operativos.
 3. Guarda/anexa los registros en data/raw/realtime/*.parquet y purga en Cloudflare D1.
 4. Audita diariamente las 8 tablas operativas de los EDAs GTFS (SHA-256),
-   excluyendo agency.txt y feed_info.txt, y relanza main.py para reconstruir
-   maestro_gtfs_YYYYMMDD.parquet si cambia cualquier tabla operativa.
+   excluyendo agency.txt y feed_info.txt, relanza pipeline_limpieza.py y
+   construir_maestro_gtfs.py si cambia cualquier tabla, archiva en
+   data/processed/versiones_gtfs/ y reconcilia data/processed/cuarentena/.
 """
 
-import base64
 from datetime import datetime, timezone
-import gzip
 import hashlib
 import io
 import json
 import logging
 import os
 from pathlib import Path
-import re
+import shutil
 import subprocess
 import sys
-import xml.etree.ElementTree as ET
 import zipfile
 
 from dotenv import load_dotenv
 import pandas as pd
 import requests
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from src.utils import (
+    anexar_parquet_deduplicado as _anexar_parquet,
+    parsear_xml_trafico_gzip as _parsear_xml_trafico_gzip,
+)
 
 load_dotenv()
 
@@ -33,12 +37,15 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 DIR_RAW = Path("data/raw")
 DIR_PROCESSED = Path("data/processed")
+DIR_CUARENTENA = DIR_PROCESSED / "cuarentena"
+DIR_VERSIONES_GTFS = DIR_PROCESSED / "versiones_gtfs"
+
 DIR_REALTIME = DIR_RAW / "realtime"
 DIR_EMT = DIR_REALTIME / "emt"
 DIR_TRAFICO = DIR_REALTIME / "trafico"
 DIR_METEO = DIR_REALTIME / "meteorologia"
 
-RUTA_HISTORIAL_GTFS = DIR_PROCESSED / "historial_versiones_gtfs.json"
+RUTA_HISTORIAL_GTFS = DIR_VERSIONES_GTFS / "historial_versiones_gtfs.json"
 
 # Las 8 tablas exactas auditadas en los EDAs 01-08 (se excluyen agency.txt y feed_info.txt)
 TABLAS_GTFS_OPERATIVAS = (
@@ -51,53 +58,6 @@ TABLAS_GTFS_OPERATIVAS = (
     "shapes.txt",
     "stop_times.txt",
 )
-
-
-def _anexar_parquet(df_nuevo: pd.DataFrame, ruta_parquet: Path, cols_dedup: list[str]) -> int:
-    """Anexa filas nuevas a un Parquet diario evitando duplicados y retorna filas finales."""
-    ruta_parquet.parent.mkdir(parents=True, exist_ok=True)
-    if ruta_parquet.exists():
-        df_existente = pd.read_parquet(ruta_parquet)
-        df_total = pd.concat([df_existente, df_nuevo], ignore_index=True)
-    else:
-        df_total = df_nuevo.copy()
-
-    df_total = df_total.drop_duplicates(subset=cols_dedup, keep="last").reset_index(drop=True)
-    df_total.to_parquet(ruta_parquet, index=False)
-    return len(df_total)
-
-
-def _parsear_xml_trafico_gzip(xml_gzip_b64: str, ts_captura_utc: str) -> pd.DataFrame:
-    """Descomprime un boletín XML GZIP de D1 y devuelve los sensores operativos saneados."""
-    comprimido = base64.b64decode(xml_gzip_b64)
-    xml_texto = gzip.decompress(comprimido).decode("utf-8", errors="replace")
-    xml_limpio = re.sub(r"&(?!amp;|lt;|gt;|quot;|apos;|#)", "&amp;", xml_texto)
-    xml_limpio = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", xml_limpio)
-    raiz = ET.fromstring(xml_limpio)
-
-    fecha_hora_el = raiz.find("fecha_hora")
-    fecha_boletin = fecha_hora_el.text.strip() if fecha_hora_el is not None and fecha_hora_el.text else ""
-
-    registros = list()
-    for pm in raiz.findall("pm"):
-        error_sensor = (pm.findtext("error") or "").strip()
-        if error_sensor != "N":
-            continue
-        registros.append({
-            "timestamp_captura_utc": ts_captura_utc,
-            "fecha_hora_boletin": fecha_boletin,
-            "idelem": (pm.findtext("idelem") or "").strip(),
-            "descripcion": (pm.findtext("descripcion") or "").strip(),
-            "tipo_elem": (pm.findtext("tipo_elem") or "").strip(),
-            "intensidad": pd.to_numeric(pm.findtext("intensidad"), errors="coerce"),
-            "ocupacion": pd.to_numeric(pm.findtext("ocupacion"), errors="coerce"),
-            "carga": pd.to_numeric(pm.findtext("carga"), errors="coerce"),
-            "nivelServicio": pd.to_numeric(pm.findtext("nivelServicio"), errors="coerce"),
-            "velocidad": pd.to_numeric(pm.findtext("velocidad"), errors="coerce"),
-            "st_x": pd.to_numeric((pm.findtext("st_x") or "").replace(",", "."), errors="coerce"),
-            "st_y": pd.to_numeric((pm.findtext("st_y") or "").replace(",", "."), errors="coerce"),
-        })
-    return pd.DataFrame(registros)
 
 
 def sincronizar_tabla(base_url: str, token: str, tabla: str) -> int:
@@ -153,6 +113,7 @@ def sincronizar_tabla(base_url: str, token: str, tabla: str) -> int:
 
     return total_descargadas
 
+
 def _descargar_zip_gtfs_oficial() -> bytes:
     """Descarga directamente el paquete ZIP oficial gtfs_emt.zip desde datos.emtmadrid.es."""
     url_gtfs_oficial = (
@@ -170,6 +131,7 @@ def _descargar_zip_gtfs_oficial() -> bytes:
         raise ValueError("El archivo descargado desde datos.emtmadrid.es no es un ZIP válido.")
     return resp_zip.content
 
+
 def _calcular_hashes_operativos_zip(zip_bytes: bytes) -> dict[str, str]:
     """Calcula el SHA-256 de las 8 tablas operativas de los EDAs GTFS."""
     hashes = dict()
@@ -180,10 +142,21 @@ def _calcular_hashes_operativos_zip(zip_bytes: bytes) -> dict[str, str]:
                 hashes[nombre_limpio] = hashlib.sha256(zf.read(nombre)).hexdigest()
     return hashes
 
-def _leer_claves_cuarentena() -> dict[str, set[str]]:
-    """Extrae los trip_id y route_id presentes en los archivos quarantine_*.csv actuales."""
-    claves = {"trip_id": set(), "route_id": set()}
+def _mover_cuarentenas_a_subcarpeta() -> None:
+    """Traslada los archivos quarantine_*.csv recién generados en data/processed/ a data/processed/cuarentena/."""
+    DIR_CUARENTENA.mkdir(parents=True, exist_ok=True)
     for archivo_q in DIR_PROCESSED.glob("quarantine_*.csv"):
+        destino = DIR_CUARENTENA / archivo_q.name
+        shutil.move(str(archivo_q), str(destino))
+
+
+def _leer_claves_cuarentena() -> dict[str, set[str]]:
+    """Extrae los trip_id y route_id presentes en data/processed/cuarentena/quarantine_*.csv."""
+    claves = {"trip_id": set(), "route_id": set()}
+    if not DIR_CUARENTENA.exists():
+        return claves
+
+    for archivo_q in DIR_CUARENTENA.glob("quarantine_*.csv"):
         try:
             df_q = pd.read_csv(archivo_q, dtype=str)
             if "trip_id" in df_q.columns:
@@ -201,8 +174,11 @@ def reconciliar_cuarentenas_gtfs(claves_previas: dict[str, set[str]], ruta_maest
     en el nuevo maestro_gtfs.parquet. Purga los archivos quarantine_*.csv obsoletos una vez
     confirmado su rescate y devuelve el total de claves recuperadas.
     """
+    if not DIR_CUARENTENA.exists():
+        return 0
+
     if not claves_previas["trip_id"] and not claves_previas["route_id"]:
-        for archivo_q in DIR_PROCESSED.glob("quarantine_*.csv"):
+        for archivo_q in DIR_CUARENTENA.glob("quarantine_*.csv"):
             df_q = pd.read_csv(archivo_q)
             if df_q.empty:
                 archivo_q.unlink(missing_ok=True)
@@ -222,7 +198,7 @@ def reconciliar_cuarentenas_gtfs(claves_previas: dict[str, set[str]], ruta_maest
             f"{len(routes_rescatadas)} route_id recuperados e integrados en {ruta_maestro.name}."
         )
 
-    for archivo_q in list(DIR_PROCESSED.glob("quarantine_*.csv")):
+    for archivo_q in list(DIR_CUARENTENA.glob("quarantine_*.csv")):
         df_q = pd.read_csv(archivo_q, dtype=str)
         if df_q.empty:
             archivo_q.unlink(missing_ok=True)
@@ -241,15 +217,18 @@ def reconciliar_cuarentenas_gtfs(claves_previas: dict[str, set[str]], ruta_maest
 
     return total_rescatados
 
+
 def auditar_y_actualizar_gtfs_diario() -> bool:
     """
     Audita diariamente las 8 tablas operativas del GTFS oficial de EMT Madrid.
-    Si detecta cambios en alguna tabla operativa, guarda copia versionada,
-    ejecuta scripts/pipeline_limpieza.py + scripts/construir_maestro_gtfs.py
-    tras respaldar el maestro_gtfs.parquet anterior, y reconcilia los registros
-    en cuarentena contra la nueva tabla maestra.
+    Si detecta cambios en alguna tabla operativa, guarda copia versionada en
+    data/processed/versiones_gtfs/, ejecuta el pipeline de limpieza/consolidación
+    y reconcilia los registros en cuarentena contra la nueva tabla maestra.
     """
     DIR_PROCESSED.mkdir(parents=True, exist_ok=True)
+    DIR_VERSIONES_GTFS.mkdir(parents=True, exist_ok=True)
+    DIR_CUARENTENA.mkdir(parents=True, exist_ok=True)
+
     historial = list()
     if RUTA_HISTORIAL_GTFS.exists():
         historial = json.loads(RUTA_HISTORIAL_GTFS.read_text(encoding="utf-8"))
@@ -302,7 +281,7 @@ def auditar_y_actualizar_gtfs_diario() -> bool:
 
     ruta_maestro_vigente = DIR_PROCESSED / "maestro_gtfs.parquet"
     if ruta_maestro_vigente.exists():
-        ruta_respaldo = DIR_PROCESSED / f"maestro_gtfs_previo_{etiqueta_hoy}.parquet"
+        ruta_respaldo = DIR_VERSIONES_GTFS / f"maestro_gtfs_previo_{etiqueta_hoy}.parquet"
         if not ruta_respaldo.exists():
             ruta_respaldo.write_bytes(ruta_maestro_vigente.read_bytes())
             logging.info(f"[GTFS] Copia de seguridad creada en {ruta_respaldo}.")
@@ -318,11 +297,12 @@ def auditar_y_actualizar_gtfs_diario() -> bool:
                 (dir_gtfs_activo / nombre_limpio).write_bytes(contenido)
 
     subprocess.run([sys.executable, "scripts/pipeline_limpieza.py"], check=True)
+    _mover_cuarentenas_a_subcarpeta()
     subprocess.run([sys.executable, "scripts/construir_maestro_gtfs.py"], check=True)
 
     reconciliar_cuarentenas_gtfs(claves_cuarentena_previas, ruta_maestro_vigente)
 
-    ruta_maestro_versionado = DIR_PROCESSED / f"maestro_gtfs_{etiqueta_hoy}.parquet"
+    ruta_maestro_versionado = DIR_VERSIONES_GTFS / f"maestro_gtfs_{etiqueta_hoy}.parquet"
     ruta_maestro_versionado.write_bytes(ruta_maestro_vigente.read_bytes())
 
     historial.append({
@@ -335,6 +315,7 @@ def auditar_y_actualizar_gtfs_diario() -> bool:
     RUTA_HISTORIAL_GTFS.write_text(json.dumps(historial, indent=2, ensure_ascii=False), encoding="utf-8")
     logging.info(f"[GTFS] Nueva versión {etiqueta_hoy} integrada y reconstruida en {ruta_maestro_versionado}.")
     return True
+
 
 def ejecutar_sincronizacion() -> None:
     """Punto de entrada principal de sincronización nube -> disco local + vigilancia diaria GTFS."""
