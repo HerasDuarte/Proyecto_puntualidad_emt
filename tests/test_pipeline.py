@@ -543,7 +543,6 @@ def test_archivar_tabla_d1_a_hf_flujo_transaccional(tmp_path):
     mock_post.assert_called_once()
     assert mock_post.call_args.kwargs["json"] == {"table": "meteo_madrid", "max_id": 42}
 
-
 def test_archivar_tabla_d1_a_hf_no_purga_si_falla_hf():
     """Garantiza que nunca se purga Cloudflare D1 si falla la subida a Hugging Face."""
     mock_api = MagicMock()
@@ -557,7 +556,7 @@ def test_archivar_tabla_d1_a_hf_no_purga_si_falla_hf():
         ]
     }
 
-    with patch.object(archivar_hf, "_descargar_parquet_remoto_si_existe", return_value=False), \
+    with patch.object(archivar_hf, "_descargar_fichero_remoto_si_existe", return_value=False), \
          patch.object(archivar_hf.requests, "get", return_value=resp_export), \
          patch.object(archivar_hf.requests, "post") as mock_post:
         with pytest.raises(RuntimeError, match="Error simulado"):
@@ -569,5 +568,43 @@ def test_archivar_tabla_d1_a_hf_no_purga_si_falla_hf():
                 "meteo_madrid",
             )
 
-    # Confirmar que /api/purge jamás fue invocado
     mock_post.assert_not_called()
+
+
+def test_respaldar_snapshot_gtfs_en_hf_detecta_cambios(tmp_path):
+    """Verifica que respaldar_snapshot_gtfs_en_hf archiva el ZIP en HF solo cuando cambian las 8 tablas."""
+    mock_api = MagicMock()
+    mock_api.token = "hf_test_token"
+
+    zip_v1 = _crear_zip_gtfs_sintetico(contenido_calendar="S1,1,1,1,1,1,0,0,20260101,20261220")
+    hashes_v1 = archivar_hf._calcular_hashes_operativos_zip(zip_v1)
+
+    hist_file = tmp_path / "historial_gtfs_nube.json"
+    hist_file.write_text(
+        json.dumps([{"version_tag": "20261120", "hashes_tablas": hashes_v1}]),
+        encoding="utf-8",
+    )
+
+    # Caso 1: Sin cambios en las 8 tablas (aunque cambie agency.txt) -> no sube nada a HF
+    zip_solo_agency = _crear_zip_gtfs_sintetico(
+        contenido_calendar="S1,1,1,1,1,1,0,0,20260101,20261220",
+        contenido_agency="EMT,Nuevo_Telefono_900",
+    )
+    with patch.object(archivar_hf, "_descargar_zip_gtfs_oficial", return_value=zip_solo_agency), \
+         patch.object(archivar_hf, "hf_hub_download", return_value=str(hist_file)):
+        subido_1 = archivar_hf.respaldar_snapshot_gtfs_en_hf(mock_api, "HerasDuarte/emt-madrid-realtime-data")
+
+    assert subido_1 is False
+    mock_api.create_commit.assert_not_called()
+
+    # Caso 2: Cambio real en calendar.txt (ej. horario de Navidad) -> archiva ZIP + historial en HF
+    zip_navidad = _crear_zip_gtfs_sintetico(contenido_calendar="S1,1,1,1,1,1,0,0,20261221,20270107")
+    with patch.object(archivar_hf, "_descargar_zip_gtfs_oficial", return_value=zip_navidad), \
+         patch.object(archivar_hf, "hf_hub_download", return_value=str(hist_file)):
+        subido_2 = archivar_hf.respaldar_snapshot_gtfs_en_hf(mock_api, "HerasDuarte/emt-madrid-realtime-data")
+
+    assert subido_2 is True
+    mock_api.create_commit.assert_called_once()
+    rutas_subidas = [op.path_in_repo for op in mock_api.create_commit.call_args.kwargs["operations"]]
+    assert any(r.startswith("gtfs_snapshots/gtfs_") and r.endswith(".zip") for r in rutas_subidas)
+    assert "gtfs_snapshots/historial_gtfs_nube.json" in rutas_subidas

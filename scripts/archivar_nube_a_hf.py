@@ -5,15 +5,21 @@ Archivador Cloud-to-Cloud: Cloudflare D1 -> Hugging Face Dataset Privado.
 2. Descarga los lotes pendientes de Cloudflare D1 (emt_llegadas, trafico_xml_raw, meteo_madrid),
    los fusiona sin duplicados con los .parquet diarios del Dataset privado en Hugging Face,
    los sube y purga los registros procesados en Cloudflare D1.
+3. Audita diariamente las 8 tablas operativas del paquete oficial gtfs_emt.zip (SHA-256)
+   y archiva una copia íntegra en gtfs_snapshots/gtfs_YYYYMMDD.zip dentro de Hugging Face
+   cada vez que EMT Madrid publique cambios de calendario (Navidad, Año Nuevo, etc.).
 """
 
 from datetime import datetime, timezone
+import hashlib
+import io
 import json
 import logging
 import os
 from pathlib import Path
 import sys
 import tempfile
+import zipfile
 
 from dotenv import load_dotenv
 from huggingface_hub import CommitOperationAdd, HfApi, hf_hub_download
@@ -27,13 +33,24 @@ from src.utils import (
     parsear_xml_trafico_gzip as _parsear_xml_trafico_gzip,
 )
 
-
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 DATASET_ID_DEFECTO = "HerasDuarte/emt-madrid-realtime-data"
 DIR_REALTIME_LOCAL = Path("data/raw/realtime")
+RUTA_HISTORIAL_GTFS_HF = "gtfs_snapshots/historial_gtfs_nube.json"
+
+TABLAS_GTFS_OPERATIVAS = (
+    "routes.txt",
+    "stops.txt",
+    "calendar.txt",
+    "calendar_dates.txt",
+    "trips.txt",
+    "frequencies.txt",
+    "shapes.txt",
+    "stop_times.txt",
+)
 
 CONFIG_TABLAS = {
     "emt_llegadas": {
@@ -63,8 +80,8 @@ def _obtener_api_hf() -> tuple[HfApi, str]:
     return HfApi(token=hf_token), dataset_id
 
 
-def _descargar_parquet_remoto_si_existe(api: HfApi, dataset_id: str, ruta_remota: str, ruta_destino: Path) -> bool:
-    """Descarga un .parquet diario desde Hugging Face si ya existe en el repositorio remoto."""
+def _descargar_fichero_remoto_si_existe(api: HfApi, dataset_id: str, ruta_remota: str, ruta_destino: Path) -> bool:
+    """Descarga un fichero desde Hugging Face si ya existe en el repositorio remoto."""
     try:
         descargado = hf_hub_download(
             repo_id=dataset_id,
@@ -78,6 +95,91 @@ def _descargar_parquet_remoto_si_existe(api: HfApi, dataset_id: str, ruta_remota
     except EntryNotFoundError:
         return False
 
+
+def _descargar_zip_gtfs_oficial() -> bytes:
+    """Descarga el paquete oficial gtfs_emt.zip desde datos.emtmadrid.es."""
+    url_gtfs_oficial = (
+        "https://" + "datos." + "emtmadrid.es/dataset/9b23259a-4491-494b-9695-36a7709b2c12"
+        "/resource/3cba2058-9833-422c-a704-bf992d31d2ee/download/gtfs_emt.zip"
+    )
+    resp_zip = requests.get(
+        url_gtfs_oficial,
+        headers={"User-Agent": "Mozilla/5.0 ProyectoPuntualidadEMT/1.0"},
+        timeout=90,
+    )
+    resp_zip.raise_for_status()
+    if not zipfile.is_zipfile(io.BytesIO(resp_zip.content)):
+        raise ValueError("El archivo descargado desde datos.emtmadrid.es no es un ZIP válido.")
+    return resp_zip.content
+
+
+def _calcular_hashes_operativos_zip(zip_bytes: bytes) -> dict[str, str]:
+    """Calcula el SHA-256 de las 8 tablas operativas del paquete GTFS."""
+    hashes = dict()
+    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+        for nombre in sorted(zf.namelist()):
+            nombre_limpio = Path(nombre).name
+            if nombre_limpio in TABLAS_GTFS_OPERATIVAS:
+                hashes[nombre_limpio] = hashlib.sha256(zf.read(nombre)).hexdigest()
+    return hashes
+
+
+def respaldar_snapshot_gtfs_en_hf(api: HfApi, dataset_id: str) -> bool:
+    """
+    Audita diariamente las 8 tablas operativas de gtfs_emt.zip.
+    Si detecta cambios respecto al último registro guardado en Hugging Face,
+    sube gtfs_snapshots/gtfs_YYYYMMDD.zip y actualiza historial_gtfs_nube.json.
+    """
+    try:
+        zip_bytes = _descargar_zip_gtfs_oficial()
+    except Exception as exc:
+        logging.warning(f"[HF-GTFS] No se pudo descargar gtfs_emt.zip hoy ({exc}).")
+        return False
+
+    hashes_remotos = _calcular_hashes_operativos_zip(zip_bytes)
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        ruta_hist_tmp = Path(tmp_dir) / "historial_gtfs_nube.json"
+        historial = list()
+        if _descargar_fichero_remoto_si_existe(api, dataset_id, RUTA_HISTORIAL_GTFS_HF, ruta_hist_tmp):
+            historial = json.loads(ruta_hist_tmp.read_text(encoding="utf-8"))
+
+        hashes_previos = historial[-1].get("hashes_tablas", dict()) if historial else dict()
+        tablas_cambiadas = [
+            tabla for tabla, h in hashes_remotos.items()
+            if hashes_previos.get(tabla) != h
+        ]
+
+        if not tablas_cambiadas:
+            etiqueta_vigente = historial[-1]["version_tag"]
+            logging.info(f"[HF-GTFS] Sin cambios en las 8 tablas operativas (vigente en nube: {etiqueta_vigente}).")
+            return False
+
+        etiqueta_hoy = datetime.now(timezone.utc).strftime("%Y%m%d")
+        ruta_zip_remoto = f"gtfs_snapshots/gtfs_{etiqueta_hoy}.zip"
+        historial.append({
+            "version_tag": etiqueta_hoy,
+            "detectado_utc": datetime.now(timezone.utc).isoformat(),
+            "tablas_modificadas": tablas_cambiadas,
+            "hashes_tablas": hashes_remotos,
+            "ruta_zip": ruta_zip_remoto,
+        })
+
+        operaciones = [
+            CommitOperationAdd(path_in_repo=ruta_zip_remoto, path_or_fileobj=zip_bytes),
+            CommitOperationAdd(
+                path_in_repo=RUTA_HISTORIAL_GTFS_HF,
+                path_or_fileobj=json.dumps(historial, indent=2, ensure_ascii=False).encode("utf-8"),
+            ),
+        ]
+        api.create_commit(
+            repo_id=dataset_id,
+            repo_type="dataset",
+            operations=operaciones,
+            commit_message=f"data(gtfs): archivar snapshot oficial gtfs_{etiqueta_hoy}.zip ({len(tablas_cambiadas)} tablas actualizadas)",
+        )
+        logging.info(f"[HF-GTFS] Nuevo snapshot archivado en {ruta_zip_remoto} (cambios: {', '.join(tablas_cambiadas)}).")
+        return True
 
 def sincronizar_locales_previos_a_hf(api: HfApi, dataset_id: str) -> int:
     """Sube los .parquet diarios que ya existan en data/raw/realtime/ hacia Hugging Face."""
@@ -99,7 +201,7 @@ def sincronizar_locales_previos_a_hf(api: HfApi, dataset_id: str) -> int:
                 ruta_trabajo = tmp_path / sub / fichero_local.name
                 df_local = pd.read_parquet(fichero_local)
 
-                if _descargar_parquet_remoto_si_existe(api, dataset_id, ruta_remota, ruta_trabajo):
+                if _descargar_fichero_remoto_si_existe(api, dataset_id, ruta_remota, ruta_trabajo):
                     filas_antes = len(pd.read_parquet(ruta_trabajo))
                     filas_despues = _anexar_parquet(df_local, ruta_trabajo, dedup)
                     if filas_despues == filas_antes:
@@ -121,6 +223,7 @@ def sincronizar_locales_previos_a_hf(api: HfApi, dataset_id: str) -> int:
             )
             logging.info(f"[HF] Sincronizados {len(operaciones)} ficheros locales previos hacia {dataset_id}.")
     return len(operaciones)
+
 
 def archivar_tabla_d1_a_hf(api: HfApi, dataset_id: str, base_url: str, sync_token: str, tabla: str) -> int:
     """Descarga lotes pendientes de una tabla D1, fusiona en Parquet en Hugging Face y purga D1."""
@@ -168,7 +271,7 @@ def archivar_tabla_d1_a_hf(api: HfApi, dataset_id: str, base_url: str, sync_toke
                 ruta_remota = f"realtime/{sub}/{nombre_fichero}"
                 ruta_trabajo = tmp_path / nombre_fichero
 
-                _descargar_parquet_remoto_si_existe(api, dataset_id, ruta_remota, ruta_trabajo)
+                _descargar_fichero_remoto_si_existe(api, dataset_id, ruta_remota, ruta_trabajo)
                 filas_finales = _anexar_parquet(df_lote_dia, ruta_trabajo, dedup)
                 logging.info(f"[{tabla}] {ruta_remota} actualizado ({filas_finales:,} filas totales).")
 
@@ -214,6 +317,8 @@ def ejecutar_archivado_nube() -> None:
     for tabla in ("emt_llegadas", "trafico_xml_raw", "meteo_madrid"):
         n = archivar_tabla_d1_a_hf(api, dataset_id, base_url, sync_token, tabla)
         logging.info(f"Resumen [{tabla}]: {n} registros archivados en Hugging Face.")
+
+    respaldar_snapshot_gtfs_en_hf(api, dataset_id)
 
 
 if __name__ == "__main__":
