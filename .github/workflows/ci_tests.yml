@@ -1,0 +1,31 @@
+name: Integración Continua (Tests Automatizados pytest)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ejecutar-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Descargar código del repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Instalar dependencias de producción y pytest
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
+
+      - name: Ejecutar suite de pruebas unitarias (pytest)
+        run: |
+          pytest -k "not (existencia_archivos_procesados or ausencia_cuarentenas_en_produccion or integridad_tabla_maestra_parquet or feature_engineering_relacional_maestro or emt_rotacion_estratificada_y_control_cuota)"
