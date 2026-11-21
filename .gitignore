@@ -39,3 +39,5 @@ Thumbs.db
 cloudflare_worker/node_modules/
 cloudflare_worker/.wrangler/
 .dev.vars
+
+data/processed/versiones_gtfs/*.parquet
