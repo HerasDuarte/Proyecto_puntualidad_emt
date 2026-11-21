@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "proyecto-puntualidad-emt"
+version = "0.3.0"
+description = "Sistema de Ingeniería de Datos y Machine Learning para predecir retrasos en los autobuses de la EMT de Madrid mediante enriquecimiento progresivo (GTFS + tráfico urbano + meteorología)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "HerasDuarte" }
+]
+keywords = ["data-engineering", "machine-learning", "gtfs", "emt-madrid", "polars", "real-time-data"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "scripts*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+exclude = [".git", ".venv", "__pycache__", "notebooks"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
