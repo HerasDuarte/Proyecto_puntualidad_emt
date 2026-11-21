@@ -107,7 +107,7 @@ El pipeline de ingeniería procesa y valida **8 tablas relacionales** y las cons
 
     python -m venv .venv
     .\.venv\Scripts\Activate.ps1   # En Windows PowerShell
-    pip install -r requirements.txt
+    pip install -r requirements-dev.txt
 
 Copia `.env.example` a `.env` e introduce tus credenciales gratuitas del portal oficial MobilityLabs EMT Madrid (`EMT_CLIENT_ID` y `EMT_PASSKEY`).
 
@@ -122,9 +122,15 @@ Copia `.env.example` a `.env` e introduce tus credenciales gratuitas del portal 
 
 *(Captura en paralelo llegadas EMT cada 3 min con control autónomo de cuota de 4.500 reqs/24h, tráfico urbano cada 5 min y meteorología Open-Meteo cada 15 min en formato Parquet particionado por fecha).*
 
-### 4. Ejecución de Tests Automatizados
+### 4. Descarga del Histórico Consolidado desde Hugging Face
 
-    pytest -v
+    python -m scripts.descargar_historico_hf
+
+*(Recupera de forma incremental todos los \.parquet\ diarios consolidados en la nube y las instantáneas oficiales \gtfs_YYYYMMDD.zip\ hacia \data/raw/\ para el entrenamiento de los modelos).*
+
+### 5. Ejecución de Tests Automatizados
+
+    pytest
 
 ---
 
