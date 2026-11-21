@@ -2,7 +2,7 @@
 Script de ingesta en tiempo real del estado del tráfico del Ayuntamiento de Madrid.
 Descarga el feed XML oficial (informo.madrid.es/informo/tmadrid/pm.xml), sanea posibles
 entidades XML mal formadas, transforma las coordenadas UTM ETRS89 (EPSG:25830) a WGS84
-(lat/lon) y guarda una instantánea estructurada en data/raw/trafico/trafico_snapshot_raw.csv.
+(lat/lon) y guarda una instantánea estructurada en data/raw/sensores_trafico/sensores.csv.
 """
 
 from datetime import datetime
@@ -15,7 +15,7 @@ import requests
 from pyproj import Transformer
 
 URL_TRAFICO_XML = "https://" + "informo." + "madrid.es/informo/tmadrid/pm.xml"
-OUTPUT_DIR = Path("data/raw/trafico")
+OUTPUT_DIR = Path("data/raw/sensores_trafico")
 
 
 def sanear_xml_madrid(contenido_bytes: bytes) -> str:
@@ -95,7 +95,7 @@ def descargar_y_parsear_trafico():
     df_trafico = pd.DataFrame(registros)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    ruta_csv = OUTPUT_DIR / "trafico_snapshot_raw.csv"
+    ruta_csv = OUTPUT_DIR / "sensores.csv"
     df_trafico.to_csv(ruta_csv, index=False, encoding="utf-8")
 
     print(f"-> Sensores capturados en toda la ciudad  : {len(df_trafico):,}")

@@ -1,4 +1,4 @@
-# 📘 Diccionario de datos de `trafico_snapshot_raw`
+# 📘 Diccionario de datos de `sensores`
 
 A continuación se incluye un resumen para referencia rápida:
 
