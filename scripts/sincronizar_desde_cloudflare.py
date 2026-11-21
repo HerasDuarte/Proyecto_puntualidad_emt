@@ -26,6 +26,21 @@ import pandas as pd
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from src.config import (
+    DIR_CUARENTENA,
+    DIR_GTFS_ACTIVO,
+    DIR_PROCESSED,
+    DIR_RAW,
+    DIR_REALTIME_EMT,
+    DIR_REALTIME_METEO,
+    DIR_REALTIME_TRAFICO,
+    DIR_VERSIONES_GTFS_PROCESSED as DIR_VERSIONES_GTFS,
+    DIR_VERSIONES_GTFS_RAW,
+    RUTA_HISTORIAL_GTFS_LOCAL as RUTA_HISTORIAL_GTFS,
+    RUTA_MAESTRO_PARQUET,
+    TABLAS_GTFS_OPERATIVAS,
+    URL_GTFS_OFICIAL_EMT,
+)
 from src.utils import (
     anexar_parquet_deduplicado as _anexar_parquet,
     parsear_xml_trafico_gzip as _parsear_xml_trafico_gzip,
@@ -35,29 +50,9 @@ load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-DIR_RAW = Path("data/raw")
-DIR_PROCESSED = Path("data/processed")
-DIR_CUARENTENA = DIR_PROCESSED / "cuarentena"
-DIR_VERSIONES_GTFS = DIR_PROCESSED / "versiones_gtfs"
-
-DIR_REALTIME = DIR_RAW / "realtime"
-DIR_EMT = DIR_REALTIME / "emt"
-DIR_TRAFICO = DIR_REALTIME / "trafico"
-DIR_METEO = DIR_REALTIME / "meteorologia"
-
-RUTA_HISTORIAL_GTFS = DIR_VERSIONES_GTFS / "historial_versiones_gtfs.json"
-
-# Las 8 tablas exactas auditadas en los EDAs 01-08 (se excluyen agency.txt y feed_info.txt)
-TABLAS_GTFS_OPERATIVAS = (
-    "routes.txt",
-    "stops.txt",
-    "calendar.txt",
-    "calendar_dates.txt",
-    "trips.txt",
-    "frequencies.txt",
-    "shapes.txt",
-    "stop_times.txt",
-)
+DIR_EMT = DIR_REALTIME_EMT
+DIR_TRAFICO = DIR_REALTIME_TRAFICO
+DIR_METEO = DIR_REALTIME_METEO
 
 
 def sincronizar_tabla(base_url: str, token: str, tabla: str) -> int:
@@ -116,12 +111,8 @@ def sincronizar_tabla(base_url: str, token: str, tabla: str) -> int:
 
 def _descargar_zip_gtfs_oficial() -> bytes:
     """Descarga directamente el paquete ZIP oficial gtfs_emt.zip desde datos.emtmadrid.es."""
-    url_gtfs_oficial = (
-        "https://" + "datos." + "emtmadrid.es/dataset/9b23259a-4491-494b-9695-36a7709b2c12"
-        "/resource/3cba2058-9833-422c-a704-bf992d31d2ee/download/gtfs_emt.zip"
-    )
     resp_zip = requests.get(
-        url_gtfs_oficial,
+        URL_GTFS_OFICIAL_EMT,
         headers={"User-Agent": "Mozilla/5.0 ProyectoPuntualidadEMT/1.0"},
         timeout=90,
     )
@@ -255,7 +246,7 @@ def auditar_y_actualizar_gtfs_diario() -> bool:
             "detectado_utc": "2026-11-18T00:00:00Z",
             "tablas_modificadas": list(hashes_base.keys()),
             "hashes_tablas": hashes_base,
-            "ruta_maestro": str(DIR_PROCESSED / "maestro_gtfs.parquet"),
+            "ruta_maestro": str(RUTA_MAESTRO_PARQUET),
         })
         RUTA_HISTORIAL_GTFS.write_text(json.dumps(historial, indent=2, ensure_ascii=False), encoding="utf-8")
 

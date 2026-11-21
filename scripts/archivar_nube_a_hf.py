@@ -28,6 +28,14 @@ import pandas as pd
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from src.config import (
+    CONFIG_TABLAS_REALTIME as CONFIG_TABLAS,
+    DIR_REALTIME as DIR_REALTIME_LOCAL,
+    HF_DATASET_ID_DEFECTO as DATASET_ID_DEFECTO,
+    RUTA_HISTORIAL_GTFS_HF,
+    TABLAS_GTFS_OPERATIVAS,
+    URL_GTFS_OFICIAL_EMT,
+)
 from src.utils import (
     anexar_parquet_deduplicado as _anexar_parquet,
     parsear_xml_trafico_gzip as _parsear_xml_trafico_gzip,
@@ -36,39 +44,6 @@ from src.utils import (
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
-DATASET_ID_DEFECTO = "HerasDuarte/emt-madrid-realtime-data"
-DIR_REALTIME_LOCAL = Path("data/raw/realtime")
-RUTA_HISTORIAL_GTFS_HF = "gtfs_snapshots/historial_gtfs_nube.json"
-
-TABLAS_GTFS_OPERATIVAS = (
-    "routes.txt",
-    "stops.txt",
-    "calendar.txt",
-    "calendar_dates.txt",
-    "trips.txt",
-    "frequencies.txt",
-    "shapes.txt",
-    "stop_times.txt",
-)
-
-CONFIG_TABLAS = {
-    "emt_llegadas": {
-        "subcarpeta": "emt",
-        "prefijo": "emt_llegadas",
-        "dedup": ["timestamp_captura_utc", "stop_id", "line", "bus_id"],
-    },
-    "trafico_xml_raw": {
-        "subcarpeta": "trafico",
-        "prefijo": "trafico_sensores",
-        "dedup": ["timestamp_captura_utc", "idelem"],
-    },
-    "meteo_madrid": {
-        "subcarpeta": "meteorologia",
-        "prefijo": "meteo_madrid",
-        "dedup": ["timestamp_captura_utc"],
-    },
-}
 
 
 def _obtener_api_hf() -> tuple[HfApi, str]:
@@ -98,12 +73,8 @@ def _descargar_fichero_remoto_si_existe(api: HfApi, dataset_id: str, ruta_remota
 
 def _descargar_zip_gtfs_oficial() -> bytes:
     """Descarga el paquete oficial gtfs_emt.zip desde datos.emtmadrid.es."""
-    url_gtfs_oficial = (
-        "https://" + "datos." + "emtmadrid.es/dataset/9b23259a-4491-494b-9695-36a7709b2c12"
-        "/resource/3cba2058-9833-422c-a704-bf992d31d2ee/download/gtfs_emt.zip"
-    )
     resp_zip = requests.get(
-        url_gtfs_oficial,
+        URL_GTFS_OFICIAL_EMT,
         headers={"User-Agent": "Mozilla/5.0 ProyectoPuntualidadEMT/1.0"},
         timeout=90,
     )
