@@ -53,9 +53,9 @@ El repositorio sigue una estructura modular de ingeniería de software que separ
     │   └── visor_trazado_emt.png
     ├── src/                             # Módulos reutilizables de producción
     │   ├── utils.py                     # Utilidades matemáticas, geodésicas (Haversine) y Regex
-    │   ├── limpieza.py                # Motores de saneamiento, cuarentena y Feature Engineering
+    │   ├── limpieza.py                  # Motores de saneamiento, cuarentena y Feature Engineering
     │   ├── consolidacion.py             # Ensamblaje relacional en Polars Lazy -> Parquet ZSTD
-    │   ├── trafico.py                   # Ingesta XML tráfico Madrid, saneamiento y cruce espacial IDW
+    │   ├── sensores_trafico.py          # Ingesta XML tráfico Madrid, saneamiento y cruce espacial IDW
     │   ├── meteorologia.py              # Ingesta meteorológica cada 15 min (Open-Meteo Madrid)
     │   └── emt_realtime.py              # Recolector rotativo EMT (4.928 paradas) con control de cuota
     ├── scripts/                         # Scripts ejecutables de línea de comandos
