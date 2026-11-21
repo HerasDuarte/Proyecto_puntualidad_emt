@@ -5,6 +5,11 @@ Centraliza algoritmos genéricos reutilizables en múltiples fases del pipeline.
 
 import re
 import numpy as np
+import base64
+import gzip
+from pathlib import Path
+import xml.etree.ElementTree as ET
+import pandas as pd
 
 def punto_en_poligono(x, y, poligono):
     """
@@ -112,3 +117,49 @@ def firmar_grafico_emt(fig) -> None:
         color="#555555",
         style="italic",
     )
+
+def anexar_parquet_deduplicado(df_nuevo: pd.DataFrame, ruta_parquet: Path, cols_dedup: list[str]) -> int:
+    """Anexa filas nuevas a un fichero Parquet evitando duplicados y retorna filas finales."""
+    ruta_parquet.parent.mkdir(parents=True, exist_ok=True)
+    if ruta_parquet.exists():
+        df_existente = pd.read_parquet(ruta_parquet)
+        df_total = pd.concat([df_existente, df_nuevo], ignore_index=True)
+    else:
+        df_total = df_nuevo.copy()
+
+    df_total = df_total.drop_duplicates(subset=cols_dedup, keep="last").reset_index(drop=True)
+    df_total.to_parquet(ruta_parquet, index=False)
+    return len(df_total)
+
+
+def parsear_xml_trafico_gzip(xml_gzip_b64: str, ts_captura_utc: str) -> pd.DataFrame:
+    """Descomprime un boletín XML GZIP de D1 y devuelve los sensores operativos saneados."""
+    comprimido = base64.b64decode(xml_gzip_b64)
+    xml_texto = gzip.decompress(comprimido).decode("utf-8", errors="replace")
+    xml_limpio = re.sub(r"&(?!amp;|lt;|gt;|quot;|apos;|#)", "&amp;", xml_texto)
+    xml_limpio = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", xml_limpio)
+    raiz = ET.fromstring(xml_limpio)
+
+    fecha_hora_el = raiz.find("fecha_hora")
+    fecha_boletin = fecha_hora_el.text.strip() if fecha_hora_el is not None and fecha_hora_el.text else ""
+
+    registros = list()
+    for pm in raiz.findall("pm"):
+        error_sensor = (pm.findtext("error") or "").strip()
+        if error_sensor != "N":
+            continue
+        registros.append({
+            "timestamp_captura_utc": ts_captura_utc,
+            "fecha_hora_boletin": fecha_boletin,
+            "idelem": (pm.findtext("idelem") or "").strip(),
+            "descripcion": (pm.findtext("descripcion") or "").strip(),
+            "tipo_elem": (pm.findtext("tipo_elem") or "").strip(),
+            "intensidad": pd.to_numeric(pm.findtext("intensidad"), errors="coerce"),
+            "ocupacion": pd.to_numeric(pm.findtext("ocupacion"), errors="coerce"),
+            "carga": pd.to_numeric(pm.findtext("carga"), errors="coerce"),
+            "nivelServicio": pd.to_numeric(pm.findtext("nivelServicio"), errors="coerce"),
+            "velocidad": pd.to_numeric(pm.findtext("velocidad"), errors="coerce"),
+            "st_x": pd.to_numeric((pm.findtext("st_x") or "").replace(",", "."), errors="coerce"),
+            "st_y": pd.to_numeric((pm.findtext("st_y") or "").replace(",", "."), errors="coerce"),
+        })
+    return pd.DataFrame(registros)

@@ -22,7 +22,11 @@ import pandas as pd
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from scripts.sincronizar_desde_cloudflare import _anexar_parquet, _parsear_xml_trafico_gzip
+from src.utils import (
+    anexar_parquet_deduplicado as _anexar_parquet,
+    parsear_xml_trafico_gzip as _parsear_xml_trafico_gzip,
+)
+
 
 load_dotenv()
 
