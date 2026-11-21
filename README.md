@@ -32,7 +32,7 @@ El repositorio sigue una estructura modular de ingeniería de software que separ
     │   ├── 07_stop_times_Dict.md
     │   ├── 08_frequencies_Dict.md
     │   ├── 09_maestro_Dict.md
-    │   └── 10_trafico_Dict.md
+    │   └── 10_sensores_trafico_Dict.md
     ├── notebooks/                       # Análisis Exploratorio de Datos (EDA) y Experimentación ML
     │   ├── 01_EDA_routes.ipynb
     │   ├── 02_EDA_stops.ipynb
@@ -43,7 +43,7 @@ El repositorio sigue una estructura modular de ingeniería de software que separ
     │   ├── 07_EDA_stop_times.ipynb
     │   ├── 08_EDA_frequencies.ipynb
     │   ├── 09_EDA_maestro.ipynb
-    │   └── 10_EDA_trafico.ipynb
+    │   └── 10_EDA_sensores_trafico.ipynb
     ├── reports/                         # Cartografía exportada en PNG estático y HTML interactivo
     │   ├── mapa_paradas_emt.html
     │   ├── mapa_paradas_emt.png
