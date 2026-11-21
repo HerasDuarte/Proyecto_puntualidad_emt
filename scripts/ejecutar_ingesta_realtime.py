@@ -24,7 +24,7 @@ import pandas as pd
 
 from src.emt_realtime import ClienteEMTRealtime
 from src.meteorologia import obtener_meteorologia_actual
-from src.trafico import obtener_trafico_saneado
+from src.sensores_trafico import obtener_trafico_saneado
 
 # Intervalos de captura en segundos
 INTERVALO_EMT_SEG = 180       # 3 minutos (25 paradas/lote -> ~500 reqs/hora)

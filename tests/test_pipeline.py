@@ -28,7 +28,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(ROOT_DIR))
 
 from src.limpieza import limpiar_routes, limpiar_frequencies
-from src.trafico import sanear_xml_madrid, vincular_trafico_a_paradas
+from src.sensores_trafico import sanear_xml_madrid, vincular_trafico_a_paradas
 from src.meteorologia import obtener_meteorologia_actual
 from src.emt_realtime import ClienteEMTRealtime, construir_lista_paradas_estratificada
 
