@@ -1,0 +1,19 @@
+# Incluye todas las dependencias de producción
+-r requirements.txt
+
+# Testing y calidad de código
+pytest>=8.0.0
+ruff>=0.4.0
+
+# Visualización, cartografía geoespacial y notebooks exploratorios
+matplotlib>=3.8.0
+seaborn>=0.13.0
+folium>=0.16.0
+geopandas>=0.14.0
+contextily>=1.5.0
+jupyterlab>=4.1.0
+ipykernel>=6.29.0
+
+# Modelado predictivo (Fases 3B - 5)
+scikit-learn>=1.4.0
+lightgbm>=4.3.0
