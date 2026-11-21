@@ -272,7 +272,7 @@ def auditar_y_actualizar_gtfs_diario() -> bool:
         return False
 
     etiqueta_hoy = datetime.now(timezone.utc).strftime("%Y%m%d")
-    dir_version = DIR_RAW / f"gtfs_{etiqueta_hoy}"
+    dir_version = DIR_RAW / "versiones_gtfs" / f"gtfs_{etiqueta_hoy}"
     dir_version.mkdir(parents=True, exist_ok=True)
     dir_gtfs_activo = DIR_RAW / "gtfs"
     dir_gtfs_activo.mkdir(parents=True, exist_ok=True)
