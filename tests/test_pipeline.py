@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 
 import io
 import zipfile
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -21,6 +21,8 @@ import scripts.sincronizar_desde_cloudflare as sync_cf
 from src.emt_realtime import _cargar_estado_cuota
 from src.utils import firmar_grafico_emt
 from scripts.sincronizar_desde_cloudflare import _parsear_xml_trafico_gzip
+
+import scripts.archivar_nube_a_hf as archivar_hf
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(ROOT_DIR))
@@ -498,3 +500,71 @@ def test_reconciliar_cuarentenas_gtfs_rescate_y_purga(tmp_path, monkeypatch):
     assert q_freqs.exists()
     df_restante = pd.read_csv(q_freqs)
     assert list(df_restante["trip_id"]) == ["T_ROTO_999"]
+
+def test_archivar_tabla_d1_a_hf_flujo_transaccional(tmp_path):
+    """Verifica fusión deduplicada, commit en Hugging Face y purga posterior en Cloudflare D1."""
+    mock_api = MagicMock()
+    mock_api.token = "hf_test_token"
+
+    # Simular que ya existía un registro previo en Hugging Face
+    pq_remoto_previo = tmp_path / "meteo_madrid_20261121.parquet"
+    pd.DataFrame([
+        {"timestamp_captura_utc": "2026-11-21T10:00:00Z", "temperatura_c": 11.2},
+    ]).to_parquet(pq_remoto_previo, index=False)
+
+    # Simular 2 lotes en Cloudflare D1: primero 2 filas nuevas (IDs 41 y 42) y luego vacío
+    resp_export_1 = MagicMock()
+    resp_export_1.json.return_value = {
+        "rows": [
+            {"id": 41, "timestamp_captura_utc": "2026-11-21T10:00:00Z", "temperatura_c": 11.3},
+            {"id": 42, "timestamp_captura_utc": "2026-11-21T10:15:00Z", "temperatura_c": 11.8},
+        ]
+    }
+    resp_export_vacio = MagicMock()
+    resp_export_vacio.json.return_value = {"rows": list()}
+    resp_purge = MagicMock()
+
+    with patch.object(archivar_hf, "hf_hub_download", return_value=str(pq_remoto_previo)), \
+         patch.object(archivar_hf.requests, "get", side_effect=[resp_export_1, resp_export_vacio]), \
+         patch.object(archivar_hf.requests, "post", return_value=resp_purge) as mock_post:
+        total = archivar_hf.archivar_tabla_d1_a_hf(
+            mock_api,
+            "HerasDuarte/emt-madrid-realtime-data",
+            "https://worker.test",
+            "secret_token",
+            "meteo_madrid",
+        )
+
+    assert total == 2
+    mock_api.create_commit.assert_called_once()
+    mock_post.assert_called_once()
+    assert mock_post.call_args.kwargs["json"] == {"table": "meteo_madrid", "max_id": 42}
+
+
+def test_archivar_tabla_d1_a_hf_no_purga_si_falla_hf():
+    """Garantiza que nunca se purga Cloudflare D1 si falla la subida a Hugging Face."""
+    mock_api = MagicMock()
+    mock_api.token = "hf_test_token"
+    mock_api.create_commit.side_effect = RuntimeError("Error simulado de red en Hugging Face")
+
+    resp_export = MagicMock()
+    resp_export.json.return_value = {
+        "rows": [
+            {"id": 99, "timestamp_captura_utc": "2026-11-21T12:00:00Z", "temperatura_c": 14.0},
+        ]
+    }
+
+    with patch.object(archivar_hf, "_descargar_parquet_remoto_si_existe", return_value=False), \
+         patch.object(archivar_hf.requests, "get", return_value=resp_export), \
+         patch.object(archivar_hf.requests, "post") as mock_post:
+        with pytest.raises(RuntimeError, match="Error simulado"):
+            archivar_hf.archivar_tabla_d1_a_hf(
+                mock_api,
+                "HerasDuarte/emt-madrid-realtime-data",
+                "https://worker.test",
+                "secret_token",
+                "meteo_madrid",
+            )
+
+    # Confirmar que /api/purge jamás fue invocado
+    mock_post.assert_not_called()
