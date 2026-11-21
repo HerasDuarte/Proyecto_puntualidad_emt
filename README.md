@@ -138,7 +138,7 @@ Copia `.env.example` a `.env` e introduce tus credenciales gratuitas del portal 
 
 * **Sincronización transaccional (`scripts/sincronizar_desde_cloudflare.py`):** Descarga los registros acumulados desde D1, los anexa deduplicados en `data/raw/realtime/*.parquet` y purga únicamente los IDs ya verificados en disco.
 
-* **Estado actual — Fase de Recolección Longitudinal (`Noviembre 2026 – Enero 2027`):** El proyecto se encuentra en campaña activa de adquisición de datos reales 24/7 (con sincronización diaria automática y auditoría criptográfica SHA-256 diaria sobre las 8 tablas operativas GTFS para reconstruir versiones ante cambios de calendario navideño o anual) antes de ejecutar los EDAs dinámicos (`11` y `12`) y el entrenamiento comparativo de los modelos (`1`, `2` y `3`) sobre una muestra libre de sesgo estacional.
+* **Estado actual — Fase de Recolección Longitudinal (`Noviembre 2026 – Enero 2027`):** El proyecto se encuentra en campaña activa de adquisición de datos reales 24/7 —con sincronización diaria automática nube-a-local y auditoría criptográfica SHA-256 diaria sobre las 8 tablas operativas GTFS (`routes`, `stops`, `calendar`, `calendar_dates`, `trips`, `frequencies`, `shapes`, `stop_times`) para reconstruir versiones ante cambios de calendario navideño o anual— antes de ejecutar los EDAs dinámicos (`11` y `12`) y el entrenamiento comparativo de los modelos (`1`, `2` y `3`) sobre una muestra libre de sesgo estacional.
 
 
 ---

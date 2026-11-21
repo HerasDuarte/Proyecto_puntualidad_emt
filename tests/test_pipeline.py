@@ -10,6 +10,14 @@ import json
 from datetime import datetime, timezone
 import matplotlib.pyplot as plt
 
+import io
+import zipfile
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import scripts.sincronizar_desde_cloudflare as sync_cf
+
 from src.emt_realtime import _cargar_estado_cuota
 from src.utils import firmar_grafico_emt
 from scripts.sincronizar_desde_cloudflare import _parsear_xml_trafico_gzip
@@ -88,10 +96,15 @@ def test_existencia_archivos_procesados():
 
 
 def test_ausencia_cuarentenas_en_produccion():
-    """Verifica que el catálogo oficial de la EMT no generó archivos de cuarentena."""
+    """Verifica que las cuarentenas tras actualizaciones GTFS sean inexistentes o estrictamente residuales (<1%)."""
     processed_dir = ROOT_DIR / 'data' / 'processed'
     cuarentenas = list(processed_dir.glob('quarantine_*.csv'))
-    assert len(cuarentenas) == 0, f"Se detectaron archivos de cuarentena inesperados: {cuarentenas}"
+    total_maestro = len(pd.read_parquet(processed_dir / 'maestro_gtfs.parquet', columns=['trip_id']))
+
+    for archivo_q in cuarentenas:
+        df_q = pd.read_csv(archivo_q)
+        tasa_q = len(df_q) / max(total_maestro, 1)
+        assert tasa_q < 0.01, f"Tasa de cuarentena excesiva ({tasa_q:.2%}) en {archivo_q.name}"
 
 
 def test_integridad_tabla_maestra_parquet():
@@ -231,12 +244,15 @@ def test_meteorologia_parseo_open_meteo(monkeypatch):
     assert float(df_meteo["visibilidad_m"].iloc[0]) == 9500.0
     assert int(df_meteo["es_de_dia"].iloc[0]) == 0
 
-
 def test_emt_rotacion_estratificada_y_control_cuota(monkeypatch):
     """Verifica el intercalado M-30/Periferia y el bloqueo autónomo al alcanzar el límite."""
+    df_stops_vigente = pd.read_csv(ROOT_DIR / 'data' / 'processed' / 'stops_limpio.csv')
+    n_paradas_activas = len(df_stops_vigente)
+
     secuencia = construir_lista_paradas_estratificada()
-    assert len(secuencia) == 4928
-    assert len(set(secuencia)) == 4928
+    assert n_paradas_activas >= 4900
+    assert len(secuencia) == n_paradas_activas
+    assert len(set(secuencia)) == n_paradas_activas
 
     monkeypatch.setenv("EMT_CLIENT_ID", "test_id")
     monkeypatch.setenv("EMT_PASSKEY", "test_key")
@@ -330,3 +346,116 @@ def test_firmar_grafico_emt_anade_atribucion():
     plt.close(fig)
 
     assert any("Powered by EMT de Madrid" in txt for txt in textos)
+
+def _crear_zip_gtfs_sintetico(contenido_calendar: str = "S1,1,1,1,1,1,0,0,20260101,20261231", contenido_agency: str = "EMT,Madrid") -> bytes:
+    """Construye en memoria un archivo ZIP GTFS sintético con las 8 tablas operativas + agency.txt."""
+    buffer = io.BytesIO()
+    tablas = {
+        "agency.txt": contenido_agency,
+        "feed_info.txt": "EMT,http://emtmadrid.es,es",
+        "routes.txt": "001,1,Cristo Rey - Prosperidad,3",
+        "stops.txt": "100,Cibeles,40.419,-3.693",
+        "calendar.txt": contenido_calendar,
+        "calendar_dates.txt": "S1,20261225,2",
+        "trips.txt": "001,S1,T1,Prosperidad,0,B1,SH1",
+        "frequencies.txt": "T1,07:00:00,22:00:00,600",
+        "shapes.txt": "SH1,40.419,-3.693,1,0",
+        "stop_times.txt": "T1,07:00:00,07:00:00,100,1,0",
+    }
+    with zipfile.ZipFile(buffer, "w") as zf:
+        for nombre, texto in tablas.items():
+            zf.writestr(nombre, texto.encode("utf-8"))
+    return buffer.getvalue()
+
+
+def test_calcular_hashes_operativos_excluye_agency_y_feed_info():
+    """Verifica que solo se auditan las 8 tablas operativas y se excluyen agency.txt y feed_info.txt."""
+    zip_bytes = _crear_zip_gtfs_sintetico()
+    hashes = sync_cf._calcular_hashes_operativos_zip(zip_bytes)
+
+    assert len(hashes) == 8
+    assert set(hashes.keys()) == set(sync_cf.TABLAS_GTFS_OPERATIVAS)
+    assert "agency.txt" not in hashes
+    assert "feed_info.txt" not in hashes
+
+
+def test_auditoria_gtfs_ignora_cambios_en_agency(tmp_path, monkeypatch):
+    """Comprueba que cambiar solo agency.txt no dispara reconstrucción del maestro GTFS."""
+    dir_raw = tmp_path / "raw"
+    dir_proc = tmp_path / "processed"
+    (dir_raw / "gtfs").mkdir(parents=True)
+    dir_proc.mkdir(parents=True)
+
+    zip_v1 = _crear_zip_gtfs_sintetico(contenido_agency="EMT,Telefono_Antiguo")
+    with zipfile.ZipFile(io.BytesIO(zip_v1), "r") as zf:
+        for nombre in sync_cf.TABLAS_GTFS_OPERATIVAS:
+            (dir_raw / "gtfs" / nombre).write_bytes(zf.read(nombre))
+
+    monkeypatch.setattr(sync_cf, "DIR_RAW", dir_raw)
+    monkeypatch.setattr(sync_cf, "DIR_PROCESSED", dir_proc)
+    monkeypatch.setattr(sync_cf, "RUTA_HISTORIAL_GTFS", dir_proc / "historial_versiones_gtfs.json")
+
+    zip_v2 = _crear_zip_gtfs_sintetico(contenido_agency="EMT,Telefono_Nuevo_900")
+    with patch.object(sync_cf, "_descargar_zip_gtfs_oficial", return_value=zip_v2):
+        hubo_cambio = sync_cf.auditar_y_actualizar_gtfs_diario()
+
+    assert hubo_cambio is False
+    assert (dir_proc / "historial_versiones_gtfs.json").exists()
+
+
+def test_auditoria_gtfs_reconstruye_ante_cambio_en_calendar(tmp_path, monkeypatch):
+    """Valida respaldo previo, archivado versionado y reconstrucción al cambiar calendar.txt."""
+    dir_raw = tmp_path / "raw"
+    dir_proc = tmp_path / "processed"
+    (dir_raw / "gtfs").mkdir(parents=True)
+    dir_proc.mkdir(parents=True)
+
+    zip_v1 = _crear_zip_gtfs_sintetico(contenido_calendar="S1,1,1,1,1,1,0,0,20260101,20261220")
+    with zipfile.ZipFile(io.BytesIO(zip_v1), "r") as zf:
+        for nombre in sync_cf.TABLAS_GTFS_OPERATIVAS:
+            (dir_raw / "gtfs" / nombre).write_bytes(zf.read(nombre))
+
+    maestro_inicial = dir_proc / "maestro_gtfs.parquet"
+    maestro_inicial.write_bytes(b"MAESTRO_V1_BYTES")
+
+    monkeypatch.setattr(sync_cf, "DIR_RAW", dir_raw)
+    monkeypatch.setattr(sync_cf, "DIR_PROCESSED", dir_proc)
+    monkeypatch.setattr(sync_cf, "RUTA_HISTORIAL_GTFS", dir_proc / "historial_versiones_gtfs.json")
+
+    zip_navidad = _crear_zip_gtfs_sintetico(contenido_calendar="S1,1,1,1,1,1,0,0,20261221,20270107")
+
+    def _simular_pipeline(cmd, check=True):
+        if "construir_maestro_gtfs.py" in cmd[-1]:
+            maestro_inicial.write_bytes(b"MAESTRO_NAVIDAD_V2_BYTES")
+
+    with patch.object(sync_cf, "_descargar_zip_gtfs_oficial", return_value=zip_navidad), \
+         patch.object(sync_cf.subprocess, "run", side_effect=_simular_pipeline):
+        hubo_cambio = sync_cf.auditar_y_actualizar_gtfs_diario()
+
+    assert hubo_cambio is True
+    respaldos = list(dir_proc.glob("maestro_gtfs_previo_*.parquet"))
+    versionados = list(dir_proc.glob("maestro_gtfs_20*.parquet"))
+    assert len(respaldos) == 1
+    assert respaldos[0].read_bytes() == b"MAESTRO_V1_BYTES"
+    assert len(versionados) == 1
+    assert versionados[0].read_bytes() == b"MAESTRO_NAVIDAD_V2_BYTES"
+
+
+def test_anexar_parquet_evita_duplicados(tmp_path):
+    """Comprueba que _anexar_parquet deduplica registros repetidos por clave compuesta."""
+    ruta_pq = tmp_path / "meteo_test.parquet"
+    df1 = pd.DataFrame([
+        {"timestamp_captura_utc": "2026-11-20T10:00:00Z", "temperatura_c": 12.5},
+        {"timestamp_captura_utc": "2026-11-20T10:15:00Z", "temperatura_c": 13.0},
+    ])
+    df2 = pd.DataFrame([
+        {"timestamp_captura_utc": "2026-11-20T10:15:00Z", "temperatura_c": 13.1},
+        {"timestamp_captura_utc": "2026-11-20T10:30:00Z", "temperatura_c": 13.4},
+    ])
+
+    sync_cf._anexar_parquet(df1, ruta_pq, ["timestamp_captura_utc"])
+    total = sync_cf._anexar_parquet(df2, ruta_pq, ["timestamp_captura_utc"])
+
+    assert total == 3
+    df_final = pd.read_parquet(ruta_pq)
+    assert float(df_final.loc[df_final["timestamp_captura_utc"] == "2026-11-20T10:15:00Z", "temperatura_c"].iloc[0]) == 13.1
