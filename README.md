@@ -140,6 +140,8 @@ Copia `.env.example` a `.env` e introduce tus credenciales gratuitas del portal 
 
 * **Estado actual — Fase de Recolección Longitudinal (`Noviembre 2026 – Enero 2027`):** El proyecto se encuentra en campaña activa de adquisición de datos reales 24/7 —con sincronización diaria automática nube-a-local y auditoría criptográfica SHA-256 diaria sobre las 8 tablas operativas GTFS (`routes`, `stops`, `calendar`, `calendar_dates`, `trips`, `frequencies`, `shapes`, `stop_times`) para reconstruir versiones ante cambios de calendario navideño o anual— antes de ejecutar los EDAs dinámicos (`11` y `12`) y el entrenamiento comparativo de los modelos (`1`, `2` y `3`) sobre una muestra libre de sesgo estacional.
 
+* **Archivado Autónomo Cloud-to-Cloud (`GitHub Actions` → `Hugging Face`):** Un flujo programado diario (`02:30 UTC`) vuelca y deduplica los lotes acumulados en **Cloudflare D1** hacia el Dataset privado **`HerasDuarte/emt-madrid-realtime-data`** en formato `.parquet` comprimido y purga la base transaccional, permitiendo capturar de forma 100% autónoma durante toda la ventana longitudinal (**Noviembre 2026 – Enero 2027**) sin depender de ningún ordenador encendido.
+
 
 ---
 
