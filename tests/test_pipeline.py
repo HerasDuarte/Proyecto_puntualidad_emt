@@ -459,3 +459,42 @@ def test_anexar_parquet_evita_duplicados(tmp_path):
     assert total == 3
     df_final = pd.read_parquet(ruta_pq)
     assert float(df_final.loc[df_final["timestamp_captura_utc"] == "2026-11-20T10:15:00Z", "temperatura_c"].iloc[0]) == 13.1
+
+def test_reconciliar_cuarentenas_gtfs_rescate_y_purga(tmp_path, monkeypatch):
+    """Verifica que reconciliar_cuarentenas_gtfs elimina archivos obsoletos al rescatarse los registros."""
+    dir_proc = tmp_path / "processed"
+    dir_proc.mkdir(parents=True)
+    monkeypatch.setattr(sync_cf, "DIR_PROCESSED", dir_proc)
+
+    # 1. Crear dos archivos de cuarentena previos: uno totalmente rescatable y otro parcialmente huérfano
+    q_trips = dir_proc / "quarantine_trips.csv"
+    pd.DataFrame([
+        {"trip_id": "FE8420011", "route_id": "842"},
+        {"trip_id": "FE8420012", "route_id": "842"},
+    ]).to_csv(q_trips, index=False)
+
+    q_freqs = dir_proc / "quarantine_frequencies.csv"
+    pd.DataFrame([
+        {"trip_id": "FE8420011", "headway_secs": 300},
+        {"trip_id": "T_ROTO_999", "headway_secs": 600},
+    ]).to_csv(q_freqs, index=False)
+
+    claves_previas = sync_cf._leer_claves_cuarentena()
+
+    # 2. Simular nuevo maestro_gtfs.parquet donde la línea 842 ya fue completada por EMT
+    ruta_maestro = dir_proc / "maestro_gtfs.parquet"
+    pd.DataFrame([
+        {"trip_id": "FE8420011", "route_id": "842"},
+        {"trip_id": "FE8420012", "route_id": "842"},
+    ]).to_parquet(ruta_maestro, index=False)
+
+    rescatados = sync_cf.reconciliar_cuarentenas_gtfs(claves_previas, ruta_maestro)
+
+    # FE8420011, FE8420012 (2 trips) + 842 (1 route) = 3 claves recuperadas
+    assert rescatados == 3
+    # quarantine_trips.csv quedó vacío tras el rescate -> debe haber sido eliminado
+    assert not q_trips.exists()
+    # quarantine_frequencies.csv conserva únicamente el registro que sigue huérfano
+    assert q_freqs.exists()
+    df_restante = pd.read_csv(q_freqs)
+    assert list(df_restante["trip_id"]) == ["T_ROTO_999"]

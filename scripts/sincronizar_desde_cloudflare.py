@@ -180,12 +180,74 @@ def _calcular_hashes_operativos_zip(zip_bytes: bytes) -> dict[str, str]:
                 hashes[nombre_limpio] = hashlib.sha256(zf.read(nombre)).hexdigest()
     return hashes
 
+def _leer_claves_cuarentena() -> dict[str, set[str]]:
+    """Extrae los trip_id y route_id presentes en los archivos quarantine_*.csv actuales."""
+    claves = {"trip_id": set(), "route_id": set()}
+    for archivo_q in DIR_PROCESSED.glob("quarantine_*.csv"):
+        try:
+            df_q = pd.read_csv(archivo_q, dtype=str)
+            if "trip_id" in df_q.columns:
+                claves["trip_id"].update(df_q["trip_id"].dropna().unique())
+            if "route_id" in df_q.columns:
+                claves["route_id"].update(df_q["route_id"].dropna().unique())
+        except Exception as exc:
+            logging.warning(f"[GTFS] No se pudo leer {archivo_q.name} durante reconciliación: {exc}")
+    return claves
+
+
+def reconciliar_cuarentenas_gtfs(claves_previas: dict[str, set[str]], ruta_maestro: Path) -> int:
+    """
+    Verifica si los registros que estaban en cuarentena ya tienen correspondencia completa
+    en el nuevo maestro_gtfs.parquet. Purga los archivos quarantine_*.csv obsoletos una vez
+    confirmado su rescate y devuelve el total de claves recuperadas.
+    """
+    if not claves_previas["trip_id"] and not claves_previas["route_id"]:
+        for archivo_q in DIR_PROCESSED.glob("quarantine_*.csv"):
+            df_q = pd.read_csv(archivo_q)
+            if df_q.empty:
+                archivo_q.unlink(missing_ok=True)
+        return 0
+
+    df_maestro_claves = pd.read_parquet(ruta_maestro, columns=["trip_id", "route_id"])
+    trips_maestro = set(df_maestro_claves["trip_id"].astype(str).unique())
+    routes_maestro = set(df_maestro_claves["route_id"].astype(str).unique())
+
+    trips_rescatados = claves_previas["trip_id"].intersection(trips_maestro)
+    routes_rescatadas = claves_previas["route_id"].intersection(routes_maestro)
+    total_rescatados = len(trips_rescatados) + len(routes_rescatadas)
+
+    if total_rescatados > 0:
+        logging.info(
+            f"[GTFS] Reconciliación de cuarentena exitosa: {len(trips_rescatados)} trip_id y "
+            f"{len(routes_rescatadas)} route_id recuperados e integrados en {ruta_maestro.name}."
+        )
+
+    for archivo_q in list(DIR_PROCESSED.glob("quarantine_*.csv")):
+        df_q = pd.read_csv(archivo_q, dtype=str)
+        if df_q.empty:
+            archivo_q.unlink(missing_ok=True)
+            continue
+
+        if "trip_id" in df_q.columns:
+            df_q = df_q[~df_q["trip_id"].isin(trips_maestro)]
+        if "route_id" in df_q.columns:
+            df_q = df_q[~df_q["route_id"].isin(routes_maestro)]
+
+        if df_q.empty:
+            archivo_q.unlink(missing_ok=True)
+            logging.info(f"[GTFS] Archivo de cuarentena obsoleto eliminado tras rescate completo: {archivo_q.name}")
+        else:
+            df_q.to_csv(archivo_q, index=False)
+
+    return total_rescatados
+
 def auditar_y_actualizar_gtfs_diario() -> bool:
     """
     Audita diariamente las 8 tablas operativas del GTFS oficial de EMT Madrid.
-    Si detecta cambios en alguna tabla operativa, guarda copia versionada y
+    Si detecta cambios en alguna tabla operativa, guarda copia versionada,
     ejecuta scripts/pipeline_limpieza.py + scripts/construir_maestro_gtfs.py
-    tras respaldar el maestro_gtfs.parquet anterior.
+    tras respaldar el maestro_gtfs.parquet anterior, y reconcilia los registros
+    en cuarentena contra la nueva tabla maestra.
     """
     DIR_PROCESSED.mkdir(parents=True, exist_ok=True)
     historial = list()
@@ -245,6 +307,8 @@ def auditar_y_actualizar_gtfs_diario() -> bool:
             ruta_respaldo.write_bytes(ruta_maestro_vigente.read_bytes())
             logging.info(f"[GTFS] Copia de seguridad creada en {ruta_respaldo}.")
 
+    claves_cuarentena_previas = _leer_claves_cuarentena()
+
     with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
         for nombre in zf.namelist():
             nombre_limpio = Path(nombre).name
@@ -255,6 +319,8 @@ def auditar_y_actualizar_gtfs_diario() -> bool:
 
     subprocess.run([sys.executable, "scripts/pipeline_limpieza.py"], check=True)
     subprocess.run([sys.executable, "scripts/construir_maestro_gtfs.py"], check=True)
+
+    reconciliar_cuarentenas_gtfs(claves_cuarentena_previas, ruta_maestro_vigente)
 
     ruta_maestro_versionado = DIR_PROCESSED / f"maestro_gtfs_{etiqueta_hoy}.parquet"
     ruta_maestro_versionado.write_bytes(ruta_maestro_vigente.read_bytes())

@@ -1,0 +1,37 @@
+name: Archivado Diario Nube a Hugging Face (Cloudflare D1 -> HF)
+
+on:
+  schedule:
+    # Se ejecuta automáticamente todos los días a las 02:30 UTC (03:30 CET)
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+    # Permite ejecutarlo manualmente en cualquier momento desde la pestaña Actions
+
+jobs:
+  archivar-datos-nube:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Descargar código del repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Instalar dependencias del pipeline
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Ejecutar volcado transaccional Cloudflare D1 -> Hugging Face
+        env:
+          CLOUDFLARE_WORKER_URL: ${{ secrets.CLOUDFLARE_WORKER_URL }}
+          SYNC_SECRET_TOKEN: ${{ secrets.SYNC_SECRET_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_DATASET_ID: HerasDuarte/emt-madrid-realtime-data
+        run: |
+          python scripts/archivar_nube_a_hf.py
