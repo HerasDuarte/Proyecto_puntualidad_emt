@@ -16,59 +16,53 @@ El proyecto sigue una **metodología experimental incremental en tres etapas**, 
 El repositorio sigue una estructura modular de ingeniería de software que separa el laboratorio exploratorio (`notebooks/`) del motor de producción (`src/`), los scripts ejecutables (`scripts/`), los artefactos cartográficos (`reports/`), los diccionarios de datos (`docs/`) y las pruebas automatizadas (`tests/`):
 
     Proyecto_puntualidad_emt/
+    ├── .github/
+    │   └── workflows/
+    │       ├── ci_tests.yml                 # Integración continua automática con pytest
+    │       └── sincronizar_nube_hf.yml      # Archivado diario Cloudflare D1 -> Hugging Face
+    ├── cloudflare_worker/
+    │   ├── src/index.ts                     # Orquestador serverless 24/7 (EMT + Tráfico + AEMET)
+    │   ├── schema.sql                       # Esquema relacional de Cloudflare D1
+    │   └── wrangler.toml                    # Configuración de Cron Triggers y bindings D1
     ├── data/
     │   ├── raw/
-    │   │   ├── gtfs/                    # Ficheros originales GTFS de la EMT de Madrid (sin modificar)
-    │   │   ├── trafico/                 # Instantánea de auditoría del boletín XML de tráfico municipal
-    │   │   └── realtime/                # Capturas sincronizadas en Parquet (emt/, trafico/, meteo/)
-    │   └── processed/                   # 8 tablas saneadas (*_limpio.csv) + maestro_gtfs.parquet
-    ├── docs/                            # Diccionarios de datos completos y auditados por fuente
-    │   ├── 01_routes_Dict.md
-    │   ├── 02_stops_Dict.md
-    │   ├── 03_shapes_Dict.md
-    │   ├── 04_calendar_Dict.md
-    │   ├── 05_calendar_dates_Dict.md
-    │   ├── 06_trips_Dict.md
-    │   ├── 07_stop_times_Dict.md
-    │   ├── 08_frequencies_Dict.md
-    │   ├── 09_maestro_Dict.md
-    │   └── 10_sensores_trafico_Dict.md
-    ├── notebooks/                       # Análisis Exploratorio de Datos (EDA) y Experimentación ML
-    │   ├── 01_EDA_routes.ipynb
-    │   ├── 02_EDA_stops.ipynb
-    │   ├── 03_EDA_shapes.ipynb
-    │   ├── 04_EDA_calendar.ipynb
-    │   ├── 05_EDA_calendar_dates.ipynb
-    │   ├── 06_EDA_trips.ipynb
-    │   ├── 07_EDA_stop_times.ipynb
-    │   ├── 08_EDA_frequencies.ipynb
-    │   ├── 09_EDA_maestro.ipynb
-    │   └── 10_EDA_sensores_trafico.ipynb
-    ├── reports/                         # Cartografía exportada en PNG estático y HTML interactivo
-    │   ├── mapa_paradas_emt.html
-    │   ├── mapa_paradas_emt.png
-    │   ├── mapa_sensores_trafico.html
-    │   ├── mapa_sensores_trafico.png
-    │   ├── visor_trazado_emt.html
-    │   └── visor_trazado_emt.png
-    ├── src/                             # Módulos reutilizables de producción
-    │   ├── utils.py                     # Utilidades matemáticas, geodésicas (Haversine) y Regex
-    │   ├── limpieza.py                  # Motores de saneamiento, cuarentena y Feature Engineering
-    │   ├── consolidacion.py             # Ensamblaje relacional en Polars Lazy -> Parquet ZSTD
-    │   ├── sensores_trafico.py          # Ingesta XML tráfico Madrid, saneamiento y cruce espacial IDW
-    │   ├── meteorologia.py              # Ingesta meteorológica cada 15 min (Open-Meteo Madrid)
-    │   └── emt_realtime.py              # Recolector rotativo EMT (4.928 paradas) con control de cuota
-    ├── scripts/                         # Scripts ejecutables de línea de comandos
-    │   ├── pipeline_limpieza.py         # Ejecuta la limpieza completa de las 8 tablas GTFS
-    │   ├── construir_maestro_gtfs.py    # Genera la Tabla Analítica Maestra en formato Parquet
-    │   ├── capturar_trafico_madrid.py   # Descarga instantánea en vivo del tráfico del Ayuntamiento
-    │   ├── test_conexion_api.py         # Verifica credenciales y consulta en vivo API MobilityLabs
-    │   └── ejecutar_ingesta_realtime.py # Orquestador continuo multi-fuente (EMT + Tráfico + Meteo)
-    ├── tests/                           # Suite de pruebas unitarias y de integración (pytest)
-    │   └── test_pipeline.py
-    ├── .env.example                     # Plantilla pública de variables de entorno y claves API
-    ├── TODO.md                          # Checklist operativo de desarrollo técnico
-    ├── requirements.txt                 # Dependencias fijadas del entorno virtual
+    │   │   ├── gtfs/                        # 8 tablas originales GTFS vigentes de EMT Madrid
+    │   │   ├── versiones_gtfs/              # Snapshots históricos crudos de versiones GTFS
+    │   │   ├── sensores_trafico/            # Instantánea estática de auditoría (sensores.csv)
+    │   │   └── realtime/                    # Capturas diarias en Parquet (emt/, trafico/, meteorologia/)
+    │   └── processed/
+    │       ├── *_limpio.csv                 # 8 tablas GTFS saneadas
+    │       ├── m30_oficial.geojson          # Polígono oficial de la circunvalación M-30
+    │       ├── maestro_gtfs.parquet         # Tabla Analítica Maestra consolidada (46 columnas)
+    │       ├── cuarentena/                  # Registros huérfanos aislados pendientes de reconciliación
+    │       └── versiones_gtfs/              # Historial JSON y copias versionadas de maestro_gtfs
+    ├── docs/                                # Diccionarios de datos auditados (01 a 10)
+    ├── notebooks/                           # EDAs estructurales y espaciales (01 a 10)
+    ├── reports/                             # Mapas estáticos PNG e interactivos HTML
+    ├── src/
+    │   ├── config.py                        # Configuración centralizada de rutas, URLs y constantes
+    │   ├── utils.py                         # Utilidades matemáticas (Haversine), Regex y Parquet DRY
+    │   ├── limpieza.py                      # Saneamiento GTFS, cuarentena y Feature Engineering
+    │   ├── consolidacion.py                 # Ensamblaje relacional en Polars Lazy -> Parquet ZSTD
+    │   ├── sensores_trafico.py              # Ingesta XML tráfico Madrid y cruce espacial IDW
+    │   ├── meteorologia.py                  # Ingesta meteorológica cada 15 min (AEMET / Open-Meteo)
+    │   └── emt_realtime.py                  # Recolector rotativo EMT (4.928 paradas) con control de cuota
+    ├── scripts/
+    │   ├── pipeline_limpieza.py             # Ejecuta la limpieza completa de las 8 tablas GTFS
+    │   ├── construir_maestro_gtfs.py        # Genera la Tabla Analítica Maestra en Parquet
+    │   ├── capturar_trafico_madrid.py   # Descarga instantánea de sensores del Ayuntamiento
+    │   ├── test_conexion_api.py         # Verifica credenciales y consulta en vivo MobilityLabs
+    │   ├── ejecutar_ingesta_realtime.py     # Orquestador continuo multi-fuente en local
+    │   ├── sincronizar_desde_cloudflare.py  # Sincronización D1 -> local, auditoría GTFS y cuarentenas
+    │   ├── archivar_nube_a_hf.py            # Volcado transaccional D1 -> Hugging Face + snapshots GTFS
+    │   └── descargar_historico_hf.py        # Descarga incremental desde Hugging Face para modelado
+    ├── tests/
+    │   └── test_pipeline.py                 # Suite de 21 pruebas unitarias y de integración (pytest)
+    ├── pyproject.toml                       # Empaquetado PEP 621 y configuración de pytest / ruff
+    ├── requirements.txt                     # Dependencias de producción multiplataforma
+    ├── requirements-dev.txt                 # Dependencias de testing, cartografía, notebooks y ML
+    ├── .env.example                         # Plantilla pública de variables de entorno
+    ├── TODO.md                              # Checklist operativo de desarrollo técnico
     └── README.md
 
 ---
@@ -109,28 +103,34 @@ El pipeline de ingeniería procesa y valida **8 tablas relacionales** y las cons
     .\.venv\Scripts\Activate.ps1   # En Windows PowerShell
     pip install -r requirements-dev.txt
 
-Copia `.env.example` a `.env` e introduce tus credenciales gratuitas del portal oficial MobilityLabs EMT Madrid (`EMT_CLIENT_ID` y `EMT_PASSKEY`).
+*(Crea un entorno virtual aislado en Python, lo activa e instala todas las dependencias del proyecto junto con las herramientas de laboratorio y testing. Después, copia `.env.example` a `.env` e introduce tus credenciales de MobilityLabs EMT, Cloudflare y Hugging Face).*
 
 ### 2. Ejecución del Pipeline de Limpieza y Tabla Maestra GTFS
 
     python -m scripts.pipeline_limpieza
     python -m scripts.construir_maestro_gtfs
 
-### 3. Ejecución del Orquestador de Ingesta Sincronizada en Tiempo Real
+*(Valida y sanea las 8 tablas relacionales del catálogo GTFS oficial y las ensambla mediante Polars Lazy en el Golden Dataset estructural `data/processed/maestro_gtfs.parquet` de 46 columnas).*
+
+### 3. Ejecución de la Ingesta en Tiempo Real y Sincronización Cloud
 
     python -m scripts.ejecutar_ingesta_realtime
+    python -m scripts.sincronizar_desde_cloudflare
 
-*(Captura en paralelo llegadas EMT cada 3 min con control autónomo de cuota de 4.500 reqs/24h, tráfico urbano cada 5 min y meteorología Open-Meteo cada 15 min en formato Parquet particionado por fecha).*
+*(Permite capturar en vivo llegadas EMT, tráfico y meteorología desde local o descargar los lotes acumulados por el orquestador serverless 24/7 de Cloudflare D1, auditando cambios diarios del catálogo GTFS y reconciliando cuarentenas).*
 
 ### 4. Descarga del Histórico Consolidado desde Hugging Face
 
     python -m scripts.descargar_historico_hf
 
-*(Recupera de forma incremental todos los \.parquet\ diarios consolidados en la nube y las instantáneas oficiales \gtfs_YYYYMMDD.zip\ hacia \data/raw/\ para el entrenamiento de los modelos).*
+*(Recupera de forma incremental todos los ficheros `.parquet` diarios consolidados en la nube y las instantáneas oficiales `gtfs_YYYYMMDD.zip` hacia `data/raw/` para reproducir el entrenamiento de los modelos).*
 
 ### 5. Ejecución de Tests Automatizados
 
     pytest
+
+*(Lanza la suite completa de 21 pruebas unitarias y de integración definida en `tests/test_pipeline.py` aplicando la configuración estándar de `pyproject.toml`).*
+
 
 ---
 
