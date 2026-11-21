@@ -23,6 +23,7 @@ from src.utils import firmar_grafico_emt
 from scripts.sincronizar_desde_cloudflare import _parsear_xml_trafico_gzip
 
 import scripts.archivar_nube_a_hf as archivar_hf
+import scripts.descargar_historico_hf as descargar_hf
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(ROOT_DIR))
@@ -608,3 +609,46 @@ def test_respaldar_snapshot_gtfs_en_hf_detecta_cambios(tmp_path):
     rutas_subidas = [op.path_in_repo for op in mock_api.create_commit.call_args.kwargs["operations"]]
     assert any(r.startswith("gtfs_snapshots/gtfs_") and r.endswith(".zip") for r in rutas_subidas)
     assert "gtfs_snapshots/historial_gtfs_nube.json" in rutas_subidas
+
+def test_descargar_historico_desde_hf_incremental(tmp_path, monkeypatch):
+    """Verifica descarga incremental desde Hugging Face evitando redescargar históricos ya presentes."""
+    dir_raw = tmp_path / "raw"
+    dir_vers_raw = dir_raw / "versiones_gtfs"
+    (dir_raw / "realtime" / "emt").mkdir(parents=True)
+    dir_vers_raw.mkdir(parents=True)
+
+    # Simular que el día antiguo y el ZIP previo ya existen en disco local
+    (dir_raw / "realtime" / "emt" / "emt_llegadas_20261118.parquet").write_bytes(b"PARQUET_ANTIGUO_OK")
+    (dir_vers_raw / "gtfs_20261120.zip").write_bytes(b"ZIP_ANTIGUO_OK")
+
+    monkeypatch.setattr(descargar_hf, "DIR_RAW", dir_raw)
+    monkeypatch.setattr(descargar_hf, "DIR_VERSIONES_GTFS_RAW", dir_vers_raw)
+
+    mock_api = MagicMock()
+    mock_api.token = "hf_test_token"
+    mock_api.list_repo_files.return_value = [
+        "README.md",
+        "realtime/emt/emt_llegadas_20261118.parquet",
+        "realtime/emt/emt_llegadas_20261121.parquet",
+        "gtfs_snapshots/gtfs_20261120.zip",
+        "gtfs_snapshots/historial_gtfs_nube.json",
+    ]
+
+    cache_dir = tmp_path / "hf_cache"
+    cache_dir.mkdir()
+
+    def _simular_descarga_hf(repo_id, filename, repo_type, token):
+        destino_cache = cache_dir / Path(filename).name
+        destino_cache.write_bytes(f"CONTENIDO_{Path(filename).name}".encode("utf-8"))
+        return str(destino_cache)
+
+    with patch.object(descargar_hf, "_obtener_cliente_hf", return_value=(mock_api, "HerasDuarte/emt-madrid-realtime-data")), \
+         patch.object(descargar_hf, "hf_hub_download", side_effect=_simular_descarga_hf):
+        resumen = descargar_hf.descargar_historico_desde_hf(forzar_actualizacion=False)
+
+    # Solo debe descargar el Parquet del día más reciente (20261121) y refrescar el JSON de historial
+    assert resumen["parquets_actualizados"] == 1
+    assert resumen["snapshots_gtfs_actualizados"] == 1
+    assert (dir_raw / "realtime" / "emt" / "emt_llegadas_20261118.parquet").read_bytes() == b"PARQUET_ANTIGUO_OK"
+    assert (dir_raw / "realtime" / "emt" / "emt_llegadas_20261121.parquet").read_bytes() == b"CONTENIDO_emt_llegadas_20261121.parquet"
+    assert (dir_vers_raw / "historial_gtfs_nube.json").exists()
