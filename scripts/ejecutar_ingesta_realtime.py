@@ -9,17 +9,12 @@ Coordina mediante relojes independientes la captura continua de:
 Los datos se almacenan incrementalmente por fecha en formato Parquet bajo data/raw/realtime/.
 """
 
-from datetime import datetime, timezone
 import logging
-from pathlib import Path
-import sys
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 
 # Garantizar que la raíz del proyecto esté en sys.path al ejecutar directamente o con -m
-RAIZ_PROYECTO = Path(__file__).resolve().parent.parent
-if str(RAIZ_PROYECTO) not in sys.path:
-    sys.path.insert(0, str(RAIZ_PROYECTO))
-
 import pandas as pd
 
 from src.emt_realtime import ClienteEMTRealtime

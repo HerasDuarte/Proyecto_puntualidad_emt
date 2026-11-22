@@ -41,3 +41,7 @@ cloudflare_worker/.wrangler/
 .dev.vars
 
 data/processed/versiones_gtfs/*.parquet
+
+# Reportes temporales de cobertura de tests
+.coverage
+htmlcov/

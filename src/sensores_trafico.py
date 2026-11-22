@@ -5,10 +5,10 @@ y valores centinela, transforma coordenadas UTM ETRS89 (EPSG:25830) a WGS84 y vi
 métricas ponderadas por inversa de la distancia (IDW) a cada parada de la red EMT.
 """
 
-from datetime import datetime
 import logging
 import re
 import xml.etree.ElementTree as ET
+from datetime import datetime
 
 import numpy as np
 import pandas as pd

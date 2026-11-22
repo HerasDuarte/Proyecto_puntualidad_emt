@@ -1,14 +1,17 @@
 import logging
 import os
-import pandas as pd
-from datetime import datetime
-from src.utils import punto_en_poligono, clasificar_regimen_horario,extraer_calle_principal, calcular_distancia_haversine
-import numpy as np
-import geopandas as gpd
-from shapely.geometry import Point
 from pathlib import Path
-import polars as pl
 
+import geopandas as gpd
+import numpy as np
+import pandas as pd
+import polars as pl
+from shapely.geometry import Point
+
+from src.utils import (
+    calcular_distancia_haversine,
+    extraer_calle_principal,
+)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -60,7 +63,7 @@ def limpiar_routes(df_routes, output_dir=None):
     es_circular = df['cabecera_ruta'].str.contains('CIRCULAR', na=False)
     destino_invalido = df['destino_ruta'].isna()
     mascara_rescate_circular = es_circular & destino_invalido
-    
+
     if mascara_rescate_circular.any():
         num_rescatadas = mascara_rescate_circular.sum()
         logging.info(f"Rescate operativo: Se detectaron {num_rescatadas} líneas circulares sin destino explícito. "
@@ -69,11 +72,11 @@ def limpiar_routes(df_routes, output_dir=None):
 
     # Saneamiento del guion residual al final de la cabecera
     df['cabecera_ruta'] = df['cabecera_ruta'].str.rstrip(' -').str.strip().astype("string[pyarrow]")
-    
+
     # 7. FEATURE ENGINEERING: Creación de la columna de Régimen Horario Vectorizada
     if 'route_short_name' in df.columns:
         df['route_short_name'] = df['route_short_name'].astype(str).str.strip().str.upper().astype("string[pyarrow]")
-        
+
         # Condiciones lógicas de negocio basadas en el estándar oficial de la EMT
         condiciones = [
             df['route_short_name'].str.startswith('N'),
@@ -83,14 +86,14 @@ def limpiar_routes(df_routes, output_dir=None):
             'Servicio Nocturno (Búho)',
             'Servicio 24 Horas'
         ]
-        
+
         # Inyección de las clases operativas sin el uso de funciones apply iterativas
         df['regimen_horario'] = np.select(condiciones, categorias, default='Servicio Diurno Regular')
         df['regimen_horario'] = df['regimen_horario'].astype("string[pyarrow]")
 
     # 8. MÁSCARAS DE CONTROL DE CALIDAD ESTRICTO EN TIEMPO DE COMPILACIÓN
     mascara_nulos = df[['route_id', 'route_short_name', 'cabecera_ruta', 'destino_ruta', 'regimen_horario']].isna().any(axis=1)
-    
+
     mascara_colision_clave = df.duplicated(subset=['route_id'], keep=False)
 
     mascara_outliers = (
@@ -125,7 +128,7 @@ def limpiar_stops(df_stops, output_dir=None):
     - Descarta variables muertas constantes o nulas (zone_id, parent_station, etc).
     - Normaliza a mayúsculas estrictas los nombres comerciales de las marquesinas.
     - FEATURE ENGINEERING: Extrae el eje vial centralizado mediante src.utils.extraer_calle_principal.
-    - FEATURE ENGINEERING: Clasificación de alta fidelidad basada en el perímetro 
+    - FEATURE ENGINEERING: Clasificación de alta fidelidad basada en el perímetro
       oficial de la M-30 cargado de forma dinámica.
     """
 
@@ -162,26 +165,26 @@ def limpiar_stops(df_stops, output_dir=None):
     # 5. INTERSECCIÓN GEOESPACIAL: Algoritmo de contención espacial dinámico (Interior M-30)
     base_path = Path(output_dir) if output_dir else Path('data/processed')
     ruta_m30_local = base_path.parent / "processed" / "m30_oficial.geojson"
-    
+
     if os.path.exists(ruta_m30_local) and 'stop_lon' in df.columns and 'stop_lat' in df.columns:
         try:
             # Carga del perímetro cartográfico oficial regional
             gdf_m30 = gpd.read_file(ruta_m30_local).to_crs("EPSG:4326")
             poligono_m30_real = gdf_m30.geometry.iloc[0]
-            
+
             # Conversión de las paradas en una malla de puntos vectoriales
             geometria_paradas = [Point(xy) for xy in zip(df['stop_lon'], df['stop_lat'])]
             gdf_paradas = gpd.GeoDataFrame(df, crs="EPSG:4326", geometry=geometria_paradas)
-            
+
             # Clasificación de contención espacial determinista
             df['en_alta_densidad_real'] = gdf_paradas.within(poligono_m30_real)
-            
+
             # Inyección del descriptor auxiliar territorial cualitativo para el reporte
             df['Ubicación Territorial'] = df['en_alta_densidad_real'].map({
                 True: 'Área de Alta Densidad Operativa (Interior M-30)',
                 False: 'Periferia Exterior (Exterior M-30)'
             }).astype("string[pyarrow]")
-            
+
         except Exception as e:
             logging.error(f"Backend: Error en el cruce espacial del pipeline de paradas: {e}")
             df['en_alta_densidad_real'] = False
@@ -196,12 +199,12 @@ def limpiar_stops(df_stops, output_dir=None):
     # 6. MÁSCARAS DE CONTROL DE CALIDAD Y FRONTERAS OPERATIVAS REGIONALES
     mascara_nulos = df[['stop_id', 'stop_name', 'stop_lat', 'stop_lon', 'calle_principal']].isna().any(axis=1)
     mascara_colision = df.duplicated(subset=['stop_id'], keep=False)
-    
+
     # Verificación de confinamiento de coordenadas dentro de los límites de la Comunidad de Madrid
     mascara_limites_madrid = (df['stop_lat'] >= 40.0) & (df['stop_lat'] <= 41.0) & (df['stop_lon'] >= -4.0) & (df['stop_lon'] <= -3.3)
 
     mascara_saludable = (~mascara_nulos) & (~mascara_colision) & mascara_limites_madrid
-    
+
     # Segregación de la matriz transaccional
     df_limpio = df[mascara_saludable].copy()
     df_cuarentena = df[~mascara_saludable].copy()
@@ -221,7 +224,7 @@ def limpiar_shapes(df_shapes, output_dir=None):
     Sanea, audita, valida y enriquece vectorialmente el catálogo de trazados geométricos (EMT).
     - Elimina duplicados absolutos en bruto.
     - Normaliza tipos de datos y fuerza el ordenamiento estricto por secuencia.
-    - FEATURE ENGINEERING: Inyecta métricas avanzadas de delta de metros inter-nodo, 
+    - FEATURE ENGINEERING: Inyecta métricas avanzadas de delta de metros inter-nodo,
       índice de sinuosidad y puntos por kilómetro a nivel de trayecto reutilizando
       src.utils.calcular_distancia_haversine.
     - Filtra y envía a cuarentena outliers geográficos fuera de Madrid y distancias negativas.
@@ -239,12 +242,12 @@ def limpiar_shapes(df_shapes, output_dir=None):
     df['shape_id'] = df['shape_id'].astype(str).str.strip().str.zfill(3).astype("string[python]")
     df['shape_pt_sequence'] = df['shape_pt_sequence'].astype("int32")
     df['shape_dist_traveled'] = df['shape_dist_traveled'].astype("int32")
-    
+
     if 'shape_pt_lat' in df.columns:
         df['shape_pt_lat'] = df['shape_pt_lat'].astype("float32")
     if 'shape_pt_lon' in df.columns:
         df['shape_pt_lon'] = df['shape_pt_lon'].astype("float32")
-        
+
     df = df.sort_values(by=['shape_id', 'shape_pt_sequence']).reset_index(drop=True)
 
     # ==============================================================================
@@ -277,13 +280,13 @@ def limpiar_shapes(df_shapes, output_dir=None):
         # 6. Fusión vectorizada directa (merge) en memoria de alta velocidad preservando el esquema
         df_aux_metricas = cabeceras[['shape_id', 'indice_sinuosidad', 'puntos_por_km']].copy()
         df_aux_metricas['shape_id'] = df_aux_metricas['shape_id'].astype("string[python]")
-        
+
         df = pd.merge(df, df_aux_metricas, on='shape_id', how='left')
 
         # Asignación de tipos nativos optimizados para las nuevas variables continuas
         df['indice_sinuosidad'] = df['indice_sinuosidad'].astype("float32")
         df['puntos_por_km'] = df['puntos_por_km'].astype("float32")
-        
+
     except Exception as e:
         logging.error(f"Fallo crítico en el motor espacial del pipeline de shapes: {e}")
         df['delta_dist_metros'] = np.array([22], dtype="int32")[0]
@@ -340,10 +343,10 @@ def limpiar_calendar(df_calendar, output_dir=None):
     - SANEAMIENTO TEMPORAL: Parsea y fuerza marcas de tiempo ligeras de PyArrow (timestamp[us]).
     - Aplica un filtro defensivo de coherencia temporal (exclusión de horizontes invertidos).
     """
-    import pandas as pd
-    import numpy as np
     import logging
     from pathlib import Path
+
+    import pandas as pd
 
     df = df_calendar.copy()
 
@@ -355,7 +358,7 @@ def limpiar_calendar(df_calendar, output_dir=None):
 
     # 2. Normalización tipográfica de identificadores alfabéticos y compresión de banderas semanales
     df['service_id'] = df['service_id'].astype(str).str.strip().str.upper().astype("string[python]")
-    
+
     columnas_dias = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
     for col in columnas_dias:
         if col in df.columns:
@@ -408,7 +411,7 @@ def limpiar_calendar_dates(df_calendar_dates, output_dir=None):
     - Sanea y elimina duplicados absolutos en bruto.
     - Asegura la consistencia tipográfica del service_id bajo cadenas optimizadas.
     - SANEAMIENTO TEMPORAL: Parsea y fuerza marcas de tiempo ligeras de PyArrow (timestamp[us]).
-    - CONTROL DE DOMINIO: Aplica filtros defensivos sobre la clave compuesta 
+    - CONTROL DE DOMINIO: Aplica filtros defensivos sobre la clave compuesta
       y restringe los códigos de excepción estrictamente al dominio válido (1 y 2).
     """
 
@@ -493,7 +496,7 @@ def limpiar_trips(df_trips, routes_clean, calendar_clean, shapes_clean, output_d
     df['service_id'] = df['service_id'].astype(str).str.strip().astype("string[pyarrow]")
     df['trip_id'] = df['trip_id'].astype(str).str.strip().astype("string[pyarrow]")
     df['block_id'] = df['block_id'].astype(str).str.strip().astype("string[pyarrow]")
-    
+
     if 'trip_headsign' in df.columns:
         df['trip_headsign'] = df['trip_headsign'].astype(str).str.strip().astype("string[pyarrow]")
     if 'shape_id' in df.columns:
@@ -553,7 +556,6 @@ def limpiar_frequencies(df_frequencies, df_trips_clean, output_dir=None):
     - Inyecta las 3 variables de ingeniería de características: 'autobuses_por_hora',
       'duracion_franja_secs' y 'hora_central_franja' bajo esquema ligero PyArrow.
     """
-    import pandas as pd
     import logging
     from pathlib import Path
 
@@ -629,7 +631,6 @@ def limpiar_stop_times(output_dir=None):
     - Inyecta la suite completa de 5 variables de ingeniería de características endógenas.
     - Consolida el esquema definitivo de salida en 11 columnas limpias de producción.
     """
-    import polars as pl
     import logging
     from pathlib import Path
 

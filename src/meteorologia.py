@@ -5,8 +5,9 @@ Captura cada 15 minutos las condiciones meteorológicas de superficie en Madrid
 código WMO e indicador día/noche) sin requerir clave API.
 """
 
-from datetime import datetime, timezone
 import logging
+from datetime import datetime, timezone
+
 import pandas as pd
 import requests
 

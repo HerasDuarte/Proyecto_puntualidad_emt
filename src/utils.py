@@ -3,13 +3,15 @@ Módulo de Funciones Auxiliares y Utilidades Matemáticas del Proyecto.
 Centraliza algoritmos genéricos reutilizables en múltiples fases del pipeline.
 """
 
-import re
-import numpy as np
 import base64
 import gzip
-from pathlib import Path
+import re
 import xml.etree.ElementTree as ET
+from pathlib import Path
+
+import numpy as np
 import pandas as pd
+
 
 def punto_en_poligono(x, y, poligono):
     """
@@ -61,7 +63,7 @@ def extraer_calle_principal(nombre_parada):
 
 def categorizar_tramos(total_marquesinas):
     """
-    Segmenta las arterias viales de Madrid en tramos discretos según 
+    Segmenta las arterias viales de Madrid en tramos discretos según
     la densidad y frecuencia de marquesinas que soportan.
     """
     if total_marquesinas <= 3:
@@ -87,23 +89,28 @@ def clasificar_extension(km):
     """
     Clasifica los trayectos comerciales de la EMT según su extensión kilométrica total.
     """
-    if km <= 5.0: 
+    if km <= 5.0:
         return 'Líneas Cortas / Barrio\n(0-5 km)'
-    elif km <= 15.0: 
+    elif km <= 15.0:
         return 'Líneas Medias / Regulares\n(5-15 km)'
-    else: 
+    else:
         return 'Largo Recorrido\n(>15 km)'
 
 def clasificar_territorio_avanzado(ratio):
     """
-    Determina el nivel de complejidad vial y fricción urbana de un trayecto 
+    Determina el nivel de complejidad vial y fricción urbana de un trayecto
     combinando su índice de tortuosidad y la densidad de su muestreo geométrico.
     """
-    if ratio == 1.0: return 'Interior Puro\n(Centro)'
-    elif ratio == 0.0: return 'Exterior Puro\n(Periferia)'
-    elif ratio <= 0.30: return 'Transversal\nPeriférica (0-30%)'
-    elif ratio <= 0.60: return 'Transversal\nEquilibrada (30-60%)'
-    else: return 'Transversal\nInvasiva (>60%)'
+    if ratio == 1.0:
+        return 'Interior Puro\n(Centro)'
+    elif ratio == 0.0:
+        return 'Exterior Puro\n(Periferia)'
+    elif ratio <= 0.30:
+        return 'Transversal\nPeriférica (0-30%)'
+    elif ratio <= 0.60:
+        return 'Transversal\nEquilibrada (30-60%)'
+    else:
+        return 'Transversal\nInvasiva (>60%)'
 
 def firmar_grafico_emt(fig) -> None:
     """Añade la atribución oficial exigida por MobilityLabs EMT al pie de la figura."""

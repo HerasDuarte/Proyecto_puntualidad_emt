@@ -1,12 +1,10 @@
-import sys
 import logging
 from pathlib import Path
 
 # Añadir la raíz del proyecto al PYTHONPATH para importar src
-ROOT_DIR = Path(__file__).resolve().parent.parent
-sys.path.append(str(ROOT_DIR))
-
 from src.consolidacion import construir_tabla_maestra_gtfs
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
 
 logging.basicConfig(
     level=logging.INFO,

@@ -5,10 +5,10 @@ entidades XML mal formadas, transforma las coordenadas UTM ETRS89 (EPSG:25830) a
 (lat/lon) y guarda una instantánea estructurada en data/raw/sensores_trafico/sensores.csv.
 """
 
-from datetime import datetime
-from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
+from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 import requests

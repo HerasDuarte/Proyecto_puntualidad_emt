@@ -10,34 +10,42 @@ Archivador Cloud-to-Cloud: Cloudflare D1 -> Hugging Face Dataset Privado.
    cada vez que EMT Madrid publique cambios de calendario (Navidad, Año Nuevo, etc.).
 """
 
-from datetime import datetime, timezone
 import hashlib
 import io
 import json
 import logging
 import os
-from pathlib import Path
 import sys
 import tempfile
 import zipfile
+from datetime import datetime, timezone
+from pathlib import Path
 
+import pandas as pd
+import requests
 from dotenv import load_dotenv
 from huggingface_hub import CommitOperationAdd, HfApi, hf_hub_download
 from huggingface_hub.utils import EntryNotFoundError
-import pandas as pd
-import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.config import (
     CONFIG_TABLAS_REALTIME as CONFIG_TABLAS,
+)
+from src.config import (
     DIR_REALTIME as DIR_REALTIME_LOCAL,
+)
+from src.config import (
     HF_DATASET_ID_DEFECTO as DATASET_ID_DEFECTO,
+)
+from src.config import (
     RUTA_HISTORIAL_GTFS_HF,
     TABLAS_GTFS_OPERATIVAS,
     URL_GTFS_OFICIAL_EMT,
 )
 from src.utils import (
     anexar_parquet_deduplicado as _anexar_parquet,
+)
+from src.utils import (
     parsear_xml_trafico_gzip as _parsear_xml_trafico_gzip,
 )
 

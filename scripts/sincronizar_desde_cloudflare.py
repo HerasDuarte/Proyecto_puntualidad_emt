@@ -9,40 +9,44 @@ Sincronizador Seguro Nube -> Local + Vigilancia y Reconstrucción Automática Di
    data/processed/versiones_gtfs/ y reconcilia data/processed/cuarentena/.
 """
 
-from datetime import datetime, timezone
 import hashlib
 import io
 import json
 import logging
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import zipfile
+from datetime import datetime, timezone
+from pathlib import Path
 
-from dotenv import load_dotenv
 import pandas as pd
 import requests
+from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.config import (
     DIR_CUARENTENA,
-    DIR_GTFS_ACTIVO,
     DIR_PROCESSED,
     DIR_RAW,
     DIR_REALTIME_EMT,
     DIR_REALTIME_METEO,
     DIR_REALTIME_TRAFICO,
-    DIR_VERSIONES_GTFS_PROCESSED as DIR_VERSIONES_GTFS,
-    DIR_VERSIONES_GTFS_RAW,
-    RUTA_HISTORIAL_GTFS_LOCAL as RUTA_HISTORIAL_GTFS,
     RUTA_MAESTRO_PARQUET,
     TABLAS_GTFS_OPERATIVAS,
     URL_GTFS_OFICIAL_EMT,
 )
+from src.config import (
+    DIR_VERSIONES_GTFS_PROCESSED as DIR_VERSIONES_GTFS,
+)
+from src.config import (
+    RUTA_HISTORIAL_GTFS_LOCAL as RUTA_HISTORIAL_GTFS,
+)
 from src.utils import (
     anexar_parquet_deduplicado as _anexar_parquet,
+)
+from src.utils import (
     parsear_xml_trafico_gzip as _parsear_xml_trafico_gzip,
 )
 

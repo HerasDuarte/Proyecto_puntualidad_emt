@@ -6,6 +6,7 @@ utilizando el motor de ejecución diferida Polars Lazy para optimizar memoria y 
 
 import logging
 from pathlib import Path
+
 import numpy as np
 import polars as pl
 

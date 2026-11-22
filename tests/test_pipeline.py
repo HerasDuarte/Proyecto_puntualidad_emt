@@ -1,38 +1,29 @@
-import pytest
-import pandas as pd
-import polars as pl
-from pathlib import Path
-import sys
-import numpy as np
 import base64
 import gzip
-import json
-from datetime import datetime, timezone
-import matplotlib.pyplot as plt
-
 import io
+import json
 import zipfile
-from unittest.mock import patch, MagicMock
+from datetime import datetime, timezone
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-import scripts.sincronizar_desde_cloudflare as sync_cf
-
-from src.emt_realtime import _cargar_estado_cuota
-from src.utils import firmar_grafico_emt
-from scripts.sincronizar_desde_cloudflare import _parsear_xml_trafico_gzip
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import polars as pl
+import pytest
 
 import scripts.archivar_nube_a_hf as archivar_hf
 import scripts.descargar_historico_hf as descargar_hf
+import scripts.sincronizar_desde_cloudflare as sync_cf
+from scripts.sincronizar_desde_cloudflare import _parsear_xml_trafico_gzip
+from src.emt_realtime import ClienteEMTRealtime, _cargar_estado_cuota, construir_lista_paradas_estratificada
+from src.limpieza import limpiar_frequencies, limpiar_routes
+from src.meteorologia import obtener_meteorologia_actual
+from src.sensores_trafico import sanear_xml_madrid, vincular_trafico_a_paradas
+from src.utils import firmar_grafico_emt
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-sys.path.append(str(ROOT_DIR))
-
-from src.limpieza import limpiar_routes, limpiar_frequencies
-from src.sensores_trafico import sanear_xml_madrid, vincular_trafico_a_paradas
-from src.meteorologia import obtener_meteorologia_actual
-from src.emt_realtime import ClienteEMTRealtime, construir_lista_paradas_estratificada
-
 
 # ==============================================================================
 # 1. PRUEBAS UNITARIAS CON DATOS SINTÉTICOS (LÓGICA DE NEGOCIO Y CUARENTENAS)

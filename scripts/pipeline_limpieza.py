@@ -1,21 +1,23 @@
-import sys
 import logging
-import pandas as pd
+import sys
 from pathlib import Path
+
+import pandas as pd
 
 # Calculamos la raíz del proyecto y la añadimos a los directorios de búsqueda de Python
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from src.limpieza import (
-    limpiar_routes, 
-    limpiar_stops, 
-    limpiar_shapes, 
-    limpiar_calendar, 
+    limpiar_calendar,
     limpiar_calendar_dates,
-    limpiar_trips,
     limpiar_frequencies,
-    limpiar_stop_times  # Motor Big Data en Polars integrado de forma síncrona
+    limpiar_routes,
+    limpiar_shapes,
+    limpiar_stop_times,  # Motor Big Data en Polars integrado de forma síncrona
+    limpiar_stops,
+    limpiar_trips,
 )
+
 
 def ejecutar_pipeline():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -32,7 +34,7 @@ def ejecutar_pipeline():
     # ==========================================
     # TIER 1 & 2: PROCESAMIENTO DE MAESTROS PREVIOS
     # ==========================================
-    
+
     # 1. Limpieza de Rutas
     logging.info("Procesando 'routes.txt'...")
     routes_raw = pd.read_csv(RAW_DIR / "routes.txt", encoding='utf-8')
@@ -66,7 +68,7 @@ def ejecutar_pipeline():
     # ==========================================
     # TIER 3: CONECTOR CENTRAL OPERATIVO
     # ==========================================
-    
+
     # 6. Limpieza e Integridad Referencial de Viajes
     logging.info("Procesando 'trips.txt'...")
     trips_raw = pd.read_csv(RAW_DIR / "trips.txt", encoding='utf-8')

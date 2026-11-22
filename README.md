@@ -18,7 +18,7 @@ El repositorio sigue una estructura modular de ingeniería de software que separ
     Proyecto_puntualidad_emt/
     ├── .github/
     │   └── workflows/
-    │       ├── ci_tests.yml                 # Integración continua automática con pytest
+    │       ├── ci_tests.yml                 # Integración continua automática (ruff + pytest)
     │       └── sincronizar_nube_hf.yml      # Archivado diario Cloudflare D1 -> Hugging Face
     ├── cloudflare_worker/
     │   ├── src/index.ts                     # Orquestador serverless 24/7 (EMT + Tráfico + AEMET)

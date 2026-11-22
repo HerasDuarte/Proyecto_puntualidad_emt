@@ -1,4 +1,4 @@
-name: Integración Continua (Tests Automatizados pytest)
+name: Integración Continua (Linting Ruff + Tests pytest)
 
 on:
   push:
@@ -25,6 +25,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
+
+      - name: Auditoría estática de estilo y calidad (ruff)
+        run: |
+          ruff check src scripts tests
 
       - name: Ejecutar suite de pruebas unitarias (pytest)
         run: |
