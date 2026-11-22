@@ -167,3 +167,9 @@ El pipeline de ingeniería procesa y valida **8 tablas relacionales** y las cons
 * **Transporte Público y Tiempos de Llegada (GTFS y API Realtime):** *Powered by [EMT de Madrid](http://emtmadrid.es)* (Portal de Datos Abiertos MobilityLabs).
 * **Tráfico Urbano:** Datos Abiertos del [Ayuntamiento de Madrid](https://madrid.es) (`informo.madrid.es`).
 * **Meteorología:** Agencia Estatal de Meteorología — [AEMET OpenData](https://aemet.es) (Estación `3195` Madrid-Retiro).
+
+---
+
+## 📄 Licencia
+
+Este proyecto (código fuente, notebooks exploratorios, arquitectura cloud y diccionarios de datos) se distribuye bajo la **Licencia MIT** — Copyright (c) 2026 **Mª Carmen Heras Duarte (`@HerasDuarte`)**. Consulta el archivo [LICENSE](LICENSE) para más detalles.

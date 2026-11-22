@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [
-    { name = "HerasDuarte" }
+    { name = "Mª Carmen Heras Duarte (@HerasDuarte)" }
 ]
 keywords = ["data-engineering", "machine-learning", "gtfs", "emt-madrid", "polars", "real-time-data"]
 
