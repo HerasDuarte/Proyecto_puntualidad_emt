@@ -5,12 +5,24 @@ Centraliza algoritmos genéricos reutilizables en múltiples fases del pipeline.
 
 import base64
 import gzip
+import hashlib
+import io
+import os
 import re
 import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import requests
+from huggingface_hub import HfApi
+
+from src.config import (
+    HF_DATASET_ID_DEFECTO,
+    TABLAS_GTFS_OPERATIVAS,
+    URL_GTFS_OFICIAL_EMT,
+)
 
 
 def punto_en_poligono(x, y, poligono):
@@ -170,3 +182,35 @@ def parsear_xml_trafico_gzip(xml_gzip_b64: str, ts_captura_utc: str) -> pd.DataF
             "st_y": pd.to_numeric((pm.findtext("st_y") or "").replace(",", "."), errors="coerce"),
         })
     return pd.DataFrame(registros)
+
+def descargar_zip_gtfs_oficial(timeout: int = 90) -> bytes:
+    """Descarga el paquete ZIP oficial gtfs_emt.zip desde el portal CKAN de EMT Madrid."""
+    resp_zip = requests.get(
+        URL_GTFS_OFICIAL_EMT,
+        headers={"User-Agent": "Mozilla/5.0 ProyectoPuntualidadEMT/1.0"},
+        timeout=timeout,
+    )
+    resp_zip.raise_for_status()
+    if not zipfile.is_zipfile(io.BytesIO(resp_zip.content)):
+        raise ValueError("El archivo descargado desde datos.emtmadrid.es no es un ZIP válido.")
+    return resp_zip.content
+
+
+def calcular_hashes_operativos_zip(zip_bytes: bytes) -> dict[str, str]:
+    """Calcula el SHA-256 de las 8 tablas operativas del paquete GTFS (excluye agency y feed_info)."""
+    hashes = dict()
+    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+        for nombre in sorted(zf.namelist()):
+            nombre_limpio = Path(nombre).name
+            if nombre_limpio in TABLAS_GTFS_OPERATIVAS:
+                hashes[nombre_limpio] = hashlib.sha256(zf.read(nombre)).hexdigest()
+    return hashes
+
+
+def obtener_cliente_hf() -> tuple[HfApi, str]:
+    """Inicializa el cliente oficial de Hugging Face y valida credenciales desde variables de entorno."""
+    hf_token = os.getenv("HF_TOKEN", "").strip()
+    dataset_id = os.getenv("HF_DATASET_ID", HF_DATASET_ID_DEFECTO).strip() or HF_DATASET_ID_DEFECTO
+    if not hf_token:
+        raise ValueError("Falta HF_TOKEN en las variables de entorno o archivo .env")
+    return HfApi(token=hf_token), dataset_id

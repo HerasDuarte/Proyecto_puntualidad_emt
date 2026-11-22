@@ -35,7 +35,6 @@ from src.config import (
     DIR_REALTIME_TRAFICO,
     RUTA_MAESTRO_PARQUET,
     TABLAS_GTFS_OPERATIVAS,
-    URL_GTFS_OFICIAL_EMT,
 )
 from src.config import (
     DIR_VERSIONES_GTFS_PROCESSED as DIR_VERSIONES_GTFS,
@@ -45,6 +44,12 @@ from src.config import (
 )
 from src.utils import (
     anexar_parquet_deduplicado as _anexar_parquet,
+)
+from src.utils import (
+    calcular_hashes_operativos_zip as _calcular_hashes_operativos_zip,
+)
+from src.utils import (
+    descargar_zip_gtfs_oficial as _descargar_zip_gtfs_oficial,
 )
 from src.utils import (
     parsear_xml_trafico_gzip as _parsear_xml_trafico_gzip,
@@ -112,30 +117,6 @@ def sincronizar_tabla(base_url: str, token: str, tabla: str) -> int:
 
     return total_descargadas
 
-
-def _descargar_zip_gtfs_oficial() -> bytes:
-    """Descarga directamente el paquete ZIP oficial gtfs_emt.zip desde datos.emtmadrid.es."""
-    resp_zip = requests.get(
-        URL_GTFS_OFICIAL_EMT,
-        headers={"User-Agent": "Mozilla/5.0 ProyectoPuntualidadEMT/1.0"},
-        timeout=90,
-    )
-    resp_zip.raise_for_status()
-
-    if not zipfile.is_zipfile(io.BytesIO(resp_zip.content)):
-        raise ValueError("El archivo descargado desde datos.emtmadrid.es no es un ZIP válido.")
-    return resp_zip.content
-
-
-def _calcular_hashes_operativos_zip(zip_bytes: bytes) -> dict[str, str]:
-    """Calcula el SHA-256 de las 8 tablas operativas de los EDAs GTFS."""
-    hashes = dict()
-    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
-        for nombre in sorted(zf.namelist()):
-            nombre_limpio = Path(nombre).name
-            if nombre_limpio in TABLAS_GTFS_OPERATIVAS:
-                hashes[nombre_limpio] = hashlib.sha256(zf.read(nombre)).hexdigest()
-    return hashes
 
 def _mover_cuarentenas_a_subcarpeta() -> None:
     """Traslada los archivos quarantine_*.csv recién generados en data/processed/ a data/processed/cuarentena/."""

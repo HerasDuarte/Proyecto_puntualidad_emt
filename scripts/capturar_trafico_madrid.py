@@ -5,7 +5,6 @@ entidades XML mal formadas, transforma las coordenadas UTM ETRS89 (EPSG:25830) a
 (lat/lon) y guarda una instantánea estructurada en data/raw/sensores_trafico/sensores.csv.
 """
 
-import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
@@ -14,22 +13,10 @@ import pandas as pd
 import requests
 from pyproj import Transformer
 
+from src.sensores_trafico import sanear_xml_madrid
+
 URL_TRAFICO_XML = "https://" + "informo." + "madrid.es/informo/tmadrid/pm.xml"
 OUTPUT_DIR = Path("data/raw/sensores_trafico")
-
-
-def sanear_xml_madrid(contenido_bytes: bytes) -> str:
-    """Decodifica el XML oficial y escapa caracteres '&' sueltos o caracteres de control inválidos."""
-    try:
-        texto = contenido_bytes.decode("utf-8")
-    except UnicodeDecodeError:
-        texto = contenido_bytes.decode("latin-1", errors="replace")
-
-    # Eliminar caracteres de control ASCII inválidos en XML 1.0
-    texto = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", texto)
-    # Escapar '&' aislados que no correspondan a entidades XML válidas
-    texto = re.sub(r"&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)", "&amp;", texto)
-    return texto
 
 
 def descargar_y_parsear_trafico():

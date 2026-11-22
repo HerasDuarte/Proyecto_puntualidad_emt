@@ -1,37 +1,19 @@
-"""
-Descargador Incremental desde Hugging Face Dataset Privado -> Entorno Local.
-Recupera todos los ficheros .parquet diarios consolidados (realtime/emt/, realtime/trafico/,
-realtime/meteorologia/) y las instantáneas oficiales GTFS (gtfs_snapshots/gtfs_YYYYMMDD.zip)
-almacenadas en el Dataset privado de Hugging Face para reproducibilidad y entrenamiento ML.
-"""
-
 import logging
-import os
 import shutil
 from pathlib import Path
 
 from dotenv import load_dotenv
-from huggingface_hub import HfApi, hf_hub_download
+from huggingface_hub import hf_hub_download
 
 from src.config import (
     DIR_RAW,
     DIR_VERSIONES_GTFS_RAW,
-    HF_DATASET_ID_DEFECTO,
 )
+from src.utils import obtener_cliente_hf as _obtener_cliente_hf
 
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
-
-def _obtener_cliente_hf() -> tuple[HfApi, str]:
-    """Inicializa el cliente de Hugging Face y valida el token de acceso."""
-    hf_token = os.getenv("HF_TOKEN", "").strip()
-    dataset_id = os.getenv("HF_DATASET_ID", HF_DATASET_ID_DEFECTO).strip() or HF_DATASET_ID_DEFECTO
-    if not hf_token:
-        raise ValueError("Falta HF_TOKEN en las variables de entorno o archivo .env")
-    return HfApi(token=hf_token), dataset_id
-
 
 def descargar_historico_desde_hf(forzar_actualizacion: bool = False) -> dict[str, int]:
     """

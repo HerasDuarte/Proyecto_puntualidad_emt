@@ -10,14 +10,11 @@ Archivador Cloud-to-Cloud: Cloudflare D1 -> Hugging Face Dataset Privado.
    cada vez que EMT Madrid publique cambios de calendario (Navidad, Año Nuevo, etc.).
 """
 
-import hashlib
-import io
 import json
 import logging
 import os
 import sys
 import tempfile
-import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -35,15 +32,19 @@ from src.config import (
     DIR_REALTIME as DIR_REALTIME_LOCAL,
 )
 from src.config import (
-    HF_DATASET_ID_DEFECTO as DATASET_ID_DEFECTO,
-)
-from src.config import (
     RUTA_HISTORIAL_GTFS_HF,
-    TABLAS_GTFS_OPERATIVAS,
-    URL_GTFS_OFICIAL_EMT,
 )
 from src.utils import (
     anexar_parquet_deduplicado as _anexar_parquet,
+)
+from src.utils import (
+    calcular_hashes_operativos_zip as _calcular_hashes_operativos_zip,
+)
+from src.utils import (
+    descargar_zip_gtfs_oficial as _descargar_zip_gtfs_oficial,
+)
+from src.utils import (
+    obtener_cliente_hf as _obtener_api_hf,
 )
 from src.utils import (
     parsear_xml_trafico_gzip as _parsear_xml_trafico_gzip,
@@ -52,15 +53,6 @@ from src.utils import (
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
-
-def _obtener_api_hf() -> tuple[HfApi, str]:
-    """Inicializa el cliente oficial de Hugging Face y verifica credenciales."""
-    hf_token = os.getenv("HF_TOKEN", "").strip()
-    dataset_id = os.getenv("HF_DATASET_ID", DATASET_ID_DEFECTO).strip() or DATASET_ID_DEFECTO
-    if not hf_token:
-        raise ValueError("Falta HF_TOKEN en las variables de entorno o archivo .env")
-    return HfApi(token=hf_token), dataset_id
 
 
 def _descargar_fichero_remoto_si_existe(api: HfApi, dataset_id: str, ruta_remota: str, ruta_destino: Path) -> bool:
@@ -77,30 +69,6 @@ def _descargar_fichero_remoto_si_existe(api: HfApi, dataset_id: str, ruta_remota
         return True
     except EntryNotFoundError:
         return False
-
-
-def _descargar_zip_gtfs_oficial() -> bytes:
-    """Descarga el paquete oficial gtfs_emt.zip desde datos.emtmadrid.es."""
-    resp_zip = requests.get(
-        URL_GTFS_OFICIAL_EMT,
-        headers={"User-Agent": "Mozilla/5.0 ProyectoPuntualidadEMT/1.0"},
-        timeout=90,
-    )
-    resp_zip.raise_for_status()
-    if not zipfile.is_zipfile(io.BytesIO(resp_zip.content)):
-        raise ValueError("El archivo descargado desde datos.emtmadrid.es no es un ZIP válido.")
-    return resp_zip.content
-
-
-def _calcular_hashes_operativos_zip(zip_bytes: bytes) -> dict[str, str]:
-    """Calcula el SHA-256 de las 8 tablas operativas del paquete GTFS."""
-    hashes = dict()
-    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
-        for nombre in sorted(zf.namelist()):
-            nombre_limpio = Path(nombre).name
-            if nombre_limpio in TABLAS_GTFS_OPERATIVAS:
-                hashes[nombre_limpio] = hashlib.sha256(zf.read(nombre)).hexdigest()
-    return hashes
 
 
 def respaldar_snapshot_gtfs_en_hf(api: HfApi, dataset_id: str) -> bool:
