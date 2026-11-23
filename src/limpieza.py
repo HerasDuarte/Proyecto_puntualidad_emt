@@ -343,10 +343,6 @@ def limpiar_calendar(df_calendar, output_dir=None):
     - SANEAMIENTO TEMPORAL: Parsea y fuerza marcas de tiempo ligeras de PyArrow (timestamp[us]).
     - Aplica un filtro defensivo de coherencia temporal (exclusión de horizontes invertidos).
     """
-    import logging
-    from pathlib import Path
-
-    import pandas as pd
 
     df = df_calendar.copy()
 
@@ -556,8 +552,6 @@ def limpiar_frequencies(df_frequencies, df_trips_clean, output_dir=None):
     - Inyecta las 3 variables de ingeniería de características: 'autobuses_por_hora',
       'duracion_franja_secs' y 'hora_central_franja' bajo esquema ligero PyArrow.
     """
-    import logging
-    from pathlib import Path
 
     df = df_frequencies.copy()
     base_path = Path(output_dir) if output_dir else Path('../data/processed')
@@ -631,8 +625,6 @@ def limpiar_stop_times(output_dir=None):
     - Inyecta la suite completa de 5 variables de ingeniería de características endógenas.
     - Consolida el esquema definitivo de salida en 11 columnas limpias de producción.
     """
-    import logging
-    from pathlib import Path
 
     base_path = Path(output_dir) if output_dir else Path('../data/processed')
     raw_path = base_path.parent / "raw" / "gtfs" / "stop_times.txt"

@@ -13,6 +13,8 @@ geopandas>=0.14.0
 contextily>=1.5.0
 jupyterlab>=4.1.0
 ipykernel>=6.29.0
+plotly>=5.20.0
+ipywidgets>=8.1.0
 
 # Modelado predictivo (Fases 3B - 5)
 scikit-learn>=1.4.0

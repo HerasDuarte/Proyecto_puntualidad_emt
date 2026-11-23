@@ -27,6 +27,7 @@ El repositorio sigue una estructura modular de ingeniería de software que separ
     ├── data/
     │   ├── raw/
     │   │   ├── gtfs/                        # 8 tablas originales GTFS vigentes de EMT Madrid
+    │   │   ├── gtfs_eda_snapshot/           # Instantánea congelada para reproducibilidad exacta de los EDA
     │   │   ├── versiones_gtfs/              # Snapshots históricos crudos de versiones GTFS
     │   │   ├── sensores_trafico/            # Instantánea estática de auditoría (sensores.csv)
     │   │   └── realtime/                    # Capturas diarias en Parquet (emt/, trafico/, meteorologia/)
@@ -50,8 +51,8 @@ El repositorio sigue una estructura modular de ingeniería de software que separ
     ├── scripts/
     │   ├── pipeline_limpieza.py             # Ejecuta la limpieza completa de las 8 tablas GTFS
     │   ├── construir_maestro_gtfs.py        # Genera la Tabla Analítica Maestra en Parquet
-    │   ├── capturar_trafico_madrid.py   # Descarga instantánea de sensores del Ayuntamiento
-    │   ├── test_conexion_api.py         # Verifica credenciales y consulta en vivo MobilityLabs
+    │   ├── capturar_trafico_madrid.py       # Descarga instantánea de sensores del Ayuntamiento
+    │   ├── test_conexion_api.py             # Verifica credenciales y consulta en vivo MobilityLabs
     │   ├── ejecutar_ingesta_realtime.py     # Orquestador continuo multi-fuente en local
     │   ├── sincronizar_desde_cloudflare.py  # Sincronización D1 -> local, auditoría GTFS y cuarentenas
     │   ├── archivar_nube_a_hf.py            # Volcado transaccional D1 -> Hugging Face + snapshots GTFS
