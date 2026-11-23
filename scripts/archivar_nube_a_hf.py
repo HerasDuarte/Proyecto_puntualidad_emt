@@ -97,20 +97,38 @@ def respaldar_snapshot_gtfs_en_hf(api: HfApi, dataset_id: str) -> bool:
             if hashes_previos.get(tabla) != h
         ]
 
+        ahora_utc = datetime.now(timezone.utc).isoformat()
         if not tablas_cambiadas:
             etiqueta_vigente = historial[-1]["version_tag"]
-            logging.info(f"[HF-GTFS] Sin cambios en las 8 tablas operativas (vigente en nube: {etiqueta_vigente}).")
+            historial[-1]["ultima_verificacion_utc"] = ahora_utc
+            api.upload_file(
+                path_or_fileobj=json.dumps(
+                    historial, indent=2, ensure_ascii=False
+                ).encode("utf-8"),
+                path_in_repo=RUTA_HISTORIAL_GTFS_HF,
+                repo_id=dataset_id,
+                repo_type="dataset",
+                commit_message=(
+                    f"chore(gtfs): verificación diaria sin cambios ({etiqueta_vigente})"
+                ),
+            )
+            logging.info(
+                f"[HF-GTFS] Sin cambios en las 8 tablas operativas "
+                f"(vigente en nube: {etiqueta_vigente})."
+            )
             return False
 
         etiqueta_hoy = datetime.now(timezone.utc).strftime("%Y%m%d")
         ruta_zip_remoto = f"gtfs_snapshots/gtfs_{etiqueta_hoy}.zip"
         historial.append({
             "version_tag": etiqueta_hoy,
-            "detectado_utc": datetime.now(timezone.utc).isoformat(),
+            "detectado_utc": ahora_utc,
+            "ultima_verificacion_utc": ahora_utc,
             "tablas_modificadas": tablas_cambiadas,
             "hashes_tablas": hashes_remotos,
             "ruta_zip": ruta_zip_remoto,
         })
+
 
         operaciones = [
             CommitOperationAdd(path_in_repo=ruta_zip_remoto, path_or_fileobj=zip_bytes),
