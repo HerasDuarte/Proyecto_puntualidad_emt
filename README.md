@@ -66,6 +66,42 @@ El repositorio sigue una estructura modular de ingeniería de software que separ
     ├── TODO.md                              # Checklist operativo de desarrollo técnico
     └── README.md
 
+```mermaid
+flowchart TB
+    subgraph F["1. Fuentes de Datos (Madrid)"]
+        F1["EMT Madrid OpenData<br/>Llegadas en tiempo real y GTFS"]
+        F2["Ayuntamiento de Madrid<br/>Sensores de tráfico (cada 5 min)"]
+        F3["AEMET OpenData<br/>Observación meteorológica horaria"]
+    end
+
+    subgraph E["2. Ingesta Autónoma 24/7 (Cloudflare Edge)"]
+        W["Cloudflare Workers<br/>Cron Triggers sin servidor"]
+        D1[("Cloudflare D1<br/>SQLite transaccional en la nube")]
+        W --> D1
+    end
+
+    subgraph P["3. Orquestación, Calidad y Lakehouse"]
+        GA["GitHub Actions<br/>CI/CD (Ruff + 21 Pytest) y ETL"]
+        ETL["Motor Analítico Python<br/>Polars Lazy · PyArrow · GeoPandas (IDW)"]
+        HF[("Hugging Face Hub<br/>Datasets Parquet + Auditoría SHA-256")]
+        GA --> ETL --> HF
+    end
+
+    subgraph C["4. Explotación y Visualización"]
+        EDA["Notebooks EDA Reproducibles<br/>Instantánea congelada (gtfs_eda_snapshot)"]
+        ML["Modelado ML y Dashboard en Vivo<br/>Predicción de puntualidad EMT"]
+    end
+
+    F1 & F2 & F3 --> W
+    D1 --> GA
+    HF --> EDA & ML
+
+    style F fill:#eef6ff,stroke:#2b6cb0,color:#1a202c
+    style E fill:#fff7ed,stroke:#c05621,color:#1a202c
+    style P fill:#f0fff4,stroke:#2f855a,color:#1a202c
+    style C fill:#faf5ff,stroke:#6b46c1,color:#1a202c
+```
+
 ---
 
 ## 📊 Inventario de Datos Procesados (Capa Base GTFS)
