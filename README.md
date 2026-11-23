@@ -66,6 +66,12 @@ El repositorio sigue una estructura modular de ingeniería de software que separ
     ├── TODO.md                              # Checklist operativo de desarrollo técnico
     └── README.md
 
+---
+
+## 🔄 Flujo de Datos e Infraestructura End-to-End
+
+El siguiente esquema resume el ciclo completo del dato desde su recolección autónoma en tiempo real hasta su validación, consolidación analítica y explotación:
+
 ![Arquitectura End-to-End del Sistema](docs/img/arquitectura_sistema.png)
 
 ---
