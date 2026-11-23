@@ -356,6 +356,55 @@ export default {
       return Response.json({ deleted: true, table: tabla, max_id: maxId, meta: res.meta });
     }
 
+        if (url.pathname === "/api/live") {
+      const estadoLive: any = await env.DB.prepare(
+        "SELECT fecha_cuota_utc, peticiones_realizadas, indice_parada_actual, en_pausa_cuota, ultima_actualizacion_utc FROM estado_cuota WHERE id = 1"
+      ).first();
+
+      const meteoActual: any = await env.DB.prepare(
+        "SELECT timestamp_captura_utc, temperatura_c, sensacion_termica_c, humedad_relativa_pct, es_de_dia, precipitacion_mm, lluvia_mm, visibilidad_m, codigo_tiempo_wmo, viento_velocidad_kmh FROM meteo_madrid ORDER BY id DESC LIMIT 1"
+      ).first();
+
+      const traficoActual: any = await env.DB.prepare(
+        "SELECT id, timestamp_captura_utc, tamano_bytes_original FROM trafico_xml_raw ORDER BY id DESC LIMIT 1"
+      ).first();
+
+      const resumenLineas: any = await env.DB.prepare(
+        `SELECT line,
+                COUNT(*) AS lecturas,
+                ROUND(AVG(estimate_arrive_sec) / 60.0, 1) AS espera_media_min,
+                ROUND(MAX(estimate_arrive_sec) / 60.0, 1) AS espera_max_min
+         FROM emt_llegadas
+         WHERE id > (SELECT COALESCE(MAX(id) - 300, 0) FROM emt_llegadas)
+           AND line IS NOT NULL
+         GROUP BY line
+         ORDER BY espera_media_min DESC
+         LIMIT 10`
+      ).all();
+
+      const ultimasLlegadas: any = await env.DB.prepare(
+        "SELECT timestamp_captura_utc, stop_id, line, destination, bus_id, estimate_arrive_sec, distance_bus_m, is_head FROM emt_llegadas ORDER BY id DESC LIMIT 25"
+      ).all();
+
+      return new Response(
+        JSON.stringify({
+          generado_utc: new Date().toISOString(),
+          atribucion: "Powered by EMT de Madrid (http://emtmadrid.es)",
+          estado_cuota_emt: estadoLive || null,
+          meteo_actual: meteoActual || null,
+          trafico_actual: traficoActual || null,
+          top_lineas_espera: resumenLineas.results || [],
+          ultimas_llegadas: ultimasLlegadas.results || [],
+        }),
+        {
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "public, max-age=120",
+          },
+        }
+      );
+    }
+
     const estado: any = await env.DB.prepare("SELECT id, fecha_cuota_utc, session_id, peticiones_realizadas, indice_parada_actual, en_pausa_cuota, token_expira_utc, ultima_actualizacion_utc FROM estado_cuota WHERE id = 1").first();
     const cEmt: any = await env.DB.prepare("SELECT COUNT(*) as total FROM emt_llegadas").first();
     const cTraf: any = await env.DB.prepare("SELECT COUNT(*) as total FROM trafico_xml_raw").first();
