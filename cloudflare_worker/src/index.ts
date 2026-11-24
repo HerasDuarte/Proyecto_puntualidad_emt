@@ -17,7 +17,8 @@ const URL_OPEN_METEO =
   "precipitation,rain,snowfall,visibility,weather_code,wind_speed_10m,wind_gusts_10m" +
   "&timezone=Europe%2FMadrid";
 
-const LIMITE_DIARIO_EMT = 4900;
+const LIMITE_DIARIO_EMT = 4800;
+const LIMITE_WEB_EMT = 150;
 const TAMANO_LOTE_EMT = 10;
 
 async function comprimirGzipBase64(texto: string): Promise<string> {
@@ -185,6 +186,24 @@ async function obtenerTokenEMT(env: Env): Promise<string> {
   return primero.accessToken;
 }
 
+async function asegurarTokenEMT(env: Env): Promise<string> {
+  const estado: any = await env.DB.prepare(
+    "SELECT access_token, token_expira_utc FROM estado_cuota WHERE id = 1"
+  ).first();
+  let token = estado?.access_token;
+  const expiraMs = estado?.token_expira_utc ? Date.parse(estado.token_expira_utc) : 0;
+  if (!token || Date.now() >= expiraMs - 300_000) {
+    token = await obtenerTokenEMT(env);
+    const nuevaExpira = new Date(Date.now() + 4 * 3600 * 1000).toISOString();
+    await env.DB.prepare(
+      "UPDATE estado_cuota SET access_token = ?, token_expira_utc = ? WHERE id = 1"
+    )
+      .bind(token, nuevaExpira)
+      .run();
+  }
+  return token;
+}
+
 async function capturarLoteEMT(env: Env, ahora: Date): Promise<string> {
   const hoyUtc = ahora.toISOString().slice(0, 10);
   const ahoraIso = ahora.toISOString();
@@ -214,17 +233,7 @@ async function capturarLoteEMT(env: Env, ahora: Date): Promise<string> {
     return `EMT STANDBY (${estado.peticiones_realizadas}/${LIMITE_DIARIO_EMT})`;
   }
 
-  let token = estado.access_token;
-  const expiraMs = estado.token_expira_utc ? Date.parse(estado.token_expira_utc) : 0;
-  if (!token || Date.now() >= expiraMs - 300_000) {
-    token = await obtenerTokenEMT(env);
-    const nuevaExpira = new Date(Date.now() + 4 * 3600 * 1000).toISOString();
-    await env.DB.prepare(
-      "UPDATE estado_cuota SET access_token = ?, token_expira_utc = ? WHERE id = 1"
-    )
-      .bind(token, nuevaExpira)
-      .run();
-  }
+  const token = await asegurarTokenEMT(env);
 
   const restantes = LIMITE_DIARIO_EMT - Number(estado.peticiones_realizadas);
   const nConsultas = Math.min(TAMANO_LOTE_EMT, restantes);
@@ -321,7 +330,7 @@ export default {
     console.log(`[${ahoraIso}] [${event.cron}]`, JSON.stringify(resumen));
   },
 
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const token = url.searchParams.get("token");
 
@@ -357,9 +366,16 @@ export default {
     }
 
         if (url.pathname === "/api/live") {
+      const hoyUtc = new Date().toISOString().slice(0, 10);
       const estadoLive: any = await env.DB.prepare(
         "SELECT fecha_cuota_utc, peticiones_realizadas, indice_parada_actual, en_pausa_cuota, ultima_actualizacion_utc FROM estado_cuota WHERE id = 1"
       ).first();
+      const estadoWebRaw: any = await env.DB.prepare(
+        "SELECT fecha_cuota_utc, peticiones_realizadas, ultima_actualizacion_utc FROM estado_cuota_web WHERE id = 1"
+      ).first();
+      const estadoWeb = estadoWebRaw && estadoWebRaw.fecha_cuota_utc === hoyUtc
+        ? estadoWebRaw
+        : { fecha_cuota_utc: hoyUtc, peticiones_realizadas: 0, ultima_actualizacion_utc: null };
 
       const meteoActual: any = await env.DB.prepare(
         "SELECT timestamp_captura_utc, temperatura_c, sensacion_termica_c, humedad_relativa_pct, es_de_dia, precipitacion_mm, lluvia_mm, visibilidad_m, codigo_tiempo_wmo, viento_velocidad_kmh FROM meteo_madrid ORDER BY id DESC LIMIT 1"
@@ -393,6 +409,8 @@ export default {
           generado_utc: new Date().toISOString(),
           atribucion: "Powered by EMT de Madrid (http://emtmadrid.es)",
           estado_cuota_emt: estadoLive || null,
+          estado_cuota_web: estadoWeb,
+          limites_emt: { cron_diario: LIMITE_DIARIO_EMT, web_diario: LIMITE_WEB_EMT },
           meteo_actual: meteoActual || null,
           trafico_actual: traficoActual || null,
           top_lineas_espera: resumenLineas.results || [],
@@ -402,6 +420,220 @@ export default {
           headers: {
             "Content-Type": "application/json; charset=utf-8",
             "Cache-Control": "public, max-age=120",
+          },
+        }
+      );
+    }
+
+    if (url.pathname === "/api/parada") {
+      const stopId = (url.searchParams.get("id") || "").trim();
+      if (!/^\d{1,6}$/.test(stopId)) {
+        return Response.json(
+          { error: "Parámetro 'id' de parada no válido." },
+          { status: 400 }
+        );
+      }
+
+      const cache = (caches as any).default;
+      const cacheKey = new Request(url.toString(), { method: "GET" });
+      try {
+        const hit = await cache.match(cacheKey);
+        if (hit) return hit;
+      } catch {
+        // Sin caché disponible en entorno local
+      }
+
+      const ahora = new Date();
+      const hoyUtc = ahora.toISOString().slice(0, 10);
+      const ahoraIso = ahora.toISOString();
+
+      let webEstado: any = await env.DB.prepare(
+        "SELECT fecha_cuota_utc, peticiones_realizadas FROM estado_cuota_web WHERE id = 1"
+      ).first();
+
+      if (!webEstado || webEstado.fecha_cuota_utc !== hoyUtc) {
+        await env.DB.prepare(
+          `INSERT INTO estado_cuota_web (id, fecha_cuota_utc, peticiones_realizadas, ultima_actualizacion_utc)
+           VALUES (1, ?, 0, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             fecha_cuota_utc = excluded.fecha_cuota_utc,
+             peticiones_realizadas = 0,
+             ultima_actualizacion_utc = excluded.ultima_actualizacion_utc`
+        )
+          .bind(hoyUtc, ahoraIso)
+          .run();
+        webEstado = { fecha_cuota_utc: hoyUtc, peticiones_realizadas: 0 };
+      }
+
+      const hechasHoy = Number(webEstado.peticiones_realizadas || 0);
+      if (hechasHoy >= LIMITE_WEB_EMT) {
+        const ultimasD1: any = await env.DB.prepare(
+          `SELECT timestamp_captura_utc, line, destination, bus_id,
+                  estimate_arrive_sec, distance_bus_m, is_head
+           FROM emt_llegadas
+           WHERE stop_id = ?
+             AND timestamp_captura_utc = (
+               SELECT MAX(timestamp_captura_utc) FROM emt_llegadas WHERE stop_id = ?
+             )
+             AND estimate_arrive_sec IS NOT NULL
+             AND estimate_arrive_sec < 90000
+           ORDER BY estimate_arrive_sec ASC`
+        )
+          .bind(stopId, stopId)
+          .all();
+
+        const filasD1 = ultimasD1.results || [];
+        return Response.json({
+          stop_id: stopId,
+          en_vivo: false,
+          cupo_web_agotado: true,
+          peticiones_web_hoy: hechasHoy,
+          limite_web_diario: LIMITE_WEB_EMT,
+          reinicio_cuota_utc: "00:00 UTC",
+          timestamp_lectura_utc: filasD1.length > 0 ? filasD1[0].timestamp_captura_utc : null,
+          llegadas: filasD1,
+        });
+      }
+
+      const tokenEmt = await asegurarTokenEMT(env);
+      const respEmt = await fetch(
+        `${BASE_URL_EMT}/transport/busemtmad/stops/${stopId}/arrives/`,
+        {
+          method: "POST",
+          headers: {
+            accessToken: tokenEmt,
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ProyectoPuntualidadEMT/1.0",
+          },
+          body: JSON.stringify({
+            cultureInfo: "ES",
+            Text_StopRequired_YN: "N",
+            Text_EstimationsRequired_YN: "Y",
+            Text_IncidencesRequired_YN: "N",
+            DateTime_Referenced_Incidencies_YYYYMMDD: "",
+          }),
+        }
+      );
+
+      if (!respEmt.ok) {
+        return Response.json(
+          { error: `Error al consultar EMT (${respEmt.status}).` },
+          { status: 502 }
+        );
+      }
+
+      const jsonEmt: any = await respEmt.json();
+      const listaData = Array.isArray(jsonEmt?.data) ? jsonEmt.data : [];
+      const arrivesRaw = Array.isArray(listaData.at(0)?.Arrive) ? listaData.at(0).Arrive : [];
+
+      const nuevasWeb = hechasHoy + 1;
+      await env.DB.prepare(
+        `UPDATE estado_cuota_web
+         SET peticiones_realizadas = ?, ultima_actualizacion_utc = ?
+         WHERE id = 1`
+      )
+        .bind(nuevasWeb, ahoraIso)
+        .run();
+
+      let sinEstimacion = 0;
+      const llegadasLimpias = arrivesRaw
+        .filter((bus: any) => {
+          const seg = Number(bus.estimateArrive);
+          if (!Number.isFinite(seg) || seg >= 90000) {
+            sinEstimacion += 1;
+            return false;
+          }
+          return true;
+        })
+        .map((bus: any) => ({
+          line: String(bus.line ?? ""),
+          destination: String(bus.destination ?? ""),
+          bus_id: String(bus.bus ?? ""),
+          estimate_arrive_sec: Number(bus.estimateArrive),
+          distance_bus_m: bus.DistanceBus != null ? Number(bus.DistanceBus) : null,
+          is_head: bus.isHead != null ? String(bus.isHead) : null,
+        }))
+        .sort((a: any, b: any) => a.estimate_arrive_sec - b.estimate_arrive_sec);
+
+      const respuesta = new Response(
+        JSON.stringify({
+          stop_id: stopId,
+          en_vivo: true,
+          cupo_web_agotado: false,
+          peticiones_web_hoy: nuevasWeb,
+          limite_web_diario: LIMITE_WEB_EMT,
+          reinicio_cuota_utc: "00:00 UTC",
+          timestamp_lectura_utc: ahoraIso,
+          sin_estimacion: sinEstimacion,
+          llegadas: llegadasLimpias,
+        }),
+        {
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "public, max-age=120",
+          },
+        }
+      );
+
+      try {
+        ctx.waitUntil(cache.put(cacheKey, respuesta.clone()));
+      } catch {
+        // Sin caché disponible en entorno local
+      }
+      return respuesta;
+    }
+
+    if (url.pathname === "/api/tension-hoy") {
+      const hoyUtc = new Date().toISOString().slice(0, 10);
+      const filasTension: any = await env.DB.prepare(
+        `SELECT line,
+                stop_id,
+                destination,
+                COUNT(*) AS lecturas,
+                ROUND(AVG(estimate_arrive_sec) / 60.0, 1) AS espera_media_min,
+                ROUND(MAX(estimate_arrive_sec) / 60.0, 1) AS espera_max_min,
+                MAX(timestamp_captura_utc) AS ultima_captura_utc
+         FROM emt_llegadas
+         WHERE timestamp_captura_utc >= ?
+           AND line IS NOT NULL
+           AND estimate_arrive_sec IS NOT NULL
+           AND estimate_arrive_sec < 90000
+         GROUP BY line, stop_id, destination
+         ORDER BY espera_media_min DESC
+         LIMIT 120`
+      )
+        .bind(hoyUtc)
+        .all();
+
+      return new Response(
+        JSON.stringify({
+          generado_utc: new Date().toISOString(),
+          fecha_utc: hoyUtc,
+          registros: filasTension.results || [],
+        }),
+        {
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "public, max-age=300",
+          },
+        }
+      );
+    }
+
+        if (url.pathname === "/api/trafico-live") {
+      const ultimoTrafico: any = await env.DB.prepare(
+        "SELECT id, timestamp_captura_utc, tamano_bytes_original, xml_gzip_base64 FROM trafico_xml_raw ORDER BY id DESC LIMIT 1"
+      ).first();
+
+      return new Response(
+        JSON.stringify({
+          generado_utc: new Date().toISOString(),
+          trafico: ultimoTrafico || null,
+        }),
+        {
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "public, max-age=300",
           },
         }
       );

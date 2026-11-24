@@ -49,3 +49,10 @@ CREATE TABLE IF NOT EXISTS estado_cuota (
     token_expira_utc TEXT,
     ultima_actualizacion_utc TEXT
 );
+
+CREATE TABLE IF NOT EXISTS estado_cuota_web (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    fecha_cuota_utc TEXT NOT NULL,
+    peticiones_realizadas INTEGER NOT NULL DEFAULT 0,
+    ultima_actualizacion_utc TEXT
+);
