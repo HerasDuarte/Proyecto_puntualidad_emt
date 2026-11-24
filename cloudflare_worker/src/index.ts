@@ -377,13 +377,15 @@ export default {
          FROM emt_llegadas
          WHERE id > (SELECT COALESCE(MAX(id) - 300, 0) FROM emt_llegadas)
            AND line IS NOT NULL
+           AND estimate_arrive_sec IS NOT NULL
+           AND estimate_arrive_sec < 90000
          GROUP BY line
          ORDER BY espera_media_min DESC
          LIMIT 10`
       ).all();
 
       const ultimasLlegadas: any = await env.DB.prepare(
-        "SELECT timestamp_captura_utc, stop_id, line, destination, bus_id, estimate_arrive_sec, distance_bus_m, is_head FROM emt_llegadas ORDER BY id DESC LIMIT 25"
+        "SELECT timestamp_captura_utc, stop_id, line, destination, bus_id, estimate_arrive_sec, distance_bus_m, is_head FROM emt_llegadas WHERE estimate_arrive_sec IS NOT NULL AND estimate_arrive_sec < 90000 ORDER BY id DESC LIMIT 25"
       ).all();
 
       return new Response(

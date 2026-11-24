@@ -27,7 +27,7 @@ RUTA_HISTORIAL_GTFS_LOCAL = DIR_VERSIONES_GTFS_PROCESSED / "historial_versiones_
 
 # Catálogo oficial GTFS EMT Madrid (Portal CKAN datos.emtmadrid.es)
 URL_GTFS_OFICIAL_EMT = (
-    "https://emtmadrid.es"
+    "https://datos.emtmadrid.es/dataset/9b23259a-4491-494b-9695-36a7709b2c12"
     "/resource/3cba2058-9833-422c-a704-bf992d31d2ee/download/gtfs_emt.zip"
 )
 

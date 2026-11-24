@@ -2,8 +2,8 @@ name: Archivado Diario Nube a Hugging Face (Cloudflare D1 -> HF)
 
 on:
   schedule:
-    # Se ejecuta automáticamente todos los días a las 02:30 UTC (03:30 CET)
-    - cron: '30 2 * * *'
+    # Se ejecuta automáticamente todos los días a las 03:17 UTC (04:17 CET)
+    - cron: '17 3 * * *'
   workflow_dispatch:
     # Permite ejecutarlo manualmente en cualquier momento desde la pestaña Actions
 
@@ -14,10 +14,10 @@ jobs:
 
     steps:
       - name: Descargar código del repositorio
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Configurar Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
