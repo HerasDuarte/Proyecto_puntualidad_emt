@@ -45,3 +45,5 @@ data/processed/versiones_gtfs/*.parquet
 # Reportes temporales de cobertura de tests
 .coverage
 htmlcov/
+
+data/processed/catalogo_dashboard/

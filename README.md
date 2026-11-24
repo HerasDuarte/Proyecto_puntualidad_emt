@@ -1,6 +1,11 @@
 # 🚌 Predicción de Puntualidad en la Red de Autobuses de la EMT de Madrid
 ### Estudio Comparativo mediante Enriquecimiento Progresivo de Datos (*GTFS + Tráfico Urbano + Meteorología*)
 
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://proyecto-emt-madrid-live.streamlit.app/)
+[![CI Pipeline](https://github.com/HerasDuarte/Proyecto_puntualidad_emt/actions/workflows/ci_tests.yml/badge.svg)](https://github.com/HerasDuarte/Proyecto_puntualidad_emt/actions/workflows/ci_tests.yml)
+
+> 🌐 **Cuadro de Mando en Producción (Tiempo Real):** Explora la red, consulta paradas en vivo, monitoriza la congestión vial y audita el catálogo GTFS en directo en **[proyecto-emt-madrid-live.streamlit.app](https://proyecto-emt-madrid-live.streamlit.app/)**.
+
 Sistema de ingeniería de datos y aprendizaje automático (*Machine Learning*) diseñado para auditar, modelar y predecir los retrasos en la red de transporte público de superficie de Madrid (**EMT Madrid**).
 
 El proyecto sigue una **metodología experimental incremental en tres etapas**, entrenando y comparando **tres modelos predictivos progresivos** sobre un mismo conjunto de validación para medir con rigor el impacto real que aporta cada nueva fuente de información abierta:
@@ -20,6 +25,8 @@ El repositorio sigue una estructura modular de ingeniería de software que separ
     │   └── workflows/
     │       ├── ci_tests.yml                 # Integración continua automática (ruff + pytest)
     │       └── sincronizar_nube_hf.yml      # Archivado diario Cloudflare D1 -> Hugging Face
+    ├── app/
+    │   └── dashboard.py                     # Cuadro de mando interactivo en producción (Streamlit)
     ├── cloudflare_worker/
     │   ├── src/index.ts                     # Orquestador serverless 24/7 (EMT + Tráfico + AEMET)
     │   ├── schema.sql                       # Esquema relacional de Cloudflare D1
@@ -35,6 +42,7 @@ El repositorio sigue una estructura modular de ingeniería de software que separ
     │       ├── *_limpio.csv                 # 8 tablas GTFS saneadas
     │       ├── m30_oficial.geojson          # Polígono oficial de la circunvalación M-30
     │       ├── maestro_gtfs.parquet         # Tabla Analítica Maestra consolidada (46 columnas)
+    │       ├── catalogo_dashboard/          # Catálogo Parquet optimizado (846 KB) para el dashboard
     │       ├── cuarentena/                  # Registros huérfanos aislados pendientes de reconciliación
     │       └── versiones_gtfs/              # Historial JSON y copias versionadas de maestro_gtfs
     ├── docs/                                # Diccionarios de datos auditados (01 a 10)
@@ -53,6 +61,7 @@ El repositorio sigue una estructura modular de ingeniería de software que separ
     │   ├── construir_maestro_gtfs.py        # Genera la Tabla Analítica Maestra en Parquet
     │   ├── capturar_trafico_madrid.py       # Descarga instantánea de sensores del Ayuntamiento
     │   ├── test_conexion_api.py             # Verifica credenciales y consulta en vivo MobilityLabs
+    │   ├── generar_catalogo_dashboard.py    # Genera y sincroniza catálogo Parquet con Hugging Face
     │   ├── ejecutar_ingesta_realtime.py     # Orquestador continuo multi-fuente en local
     │   ├── sincronizar_desde_cloudflare.py  # Sincronización D1 -> local, auditoría GTFS y cuarentenas
     │   ├── archivar_nube_a_hf.py            # Volcado transaccional D1 -> Hugging Face + snapshots GTFS
@@ -65,6 +74,16 @@ El repositorio sigue una estructura modular de ingeniería de software que separ
     ├── .env.example                         # Plantilla pública de variables de entorno
     ├── TODO.md                              # Checklist operativo de desarrollo técnico
     └── README.md
+
+---
+
+### 📱 Cuadro de Mando en Tiempo Real (`app/dashboard.py`)
+
+El cuadro de mando interactivo desplegado públicamente en [Streamlit Community Cloud](https://proyecto-emt-madrid-live.streamlit.app/) articula la explotación ciudadana y analítica del sistema en tres vistas:
+
+1. **🚌 Tu Parada y Línea (Tiempo Real):** Consulta bajo demanda de llegadas por parada (`/api/parada`, con cupo diario blindado de 150 consultas para no interferir con el recolector científico 24/7), cálculo de tiempo teórico y paradas intermedias hasta destino según GTFS, trazado con paradas de alto contraste, mapa de calor de tráfico a lo largo del corredor vial y semáforo de paradas tensionadas hoy (comparativa de espera real en D1 frente a la frecuencia oficial programada en `frequencies.txt`).
+2. **🚦 Tráfico en Vivo (Madrid):** Visualización sobre OpenStreetMap en escala de grises de los sensores del Ayuntamiento de Madrid (`/api/trafico-live`), selector entre mapa de calor continuo o sensores individuales con escala semafórica y ranking del Top 15 tramos con mayor congestión.
+3. **🛠️ Salud del Sistema y Auditoría GTFS:** Monitor de latido del orquestador serverless en Cloudflare D1 (presupuesto diario del recolector 24/7 vs. consultas web, últimos paquetes de tráfico e instrumental AEMET Retiro) y control de versiones oficiales del catálogo GTFS con trazabilidad SHA-256.
 
 ---
 
