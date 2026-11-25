@@ -47,3 +47,7 @@ data/processed/versiones_gtfs/*.parquet
 htmlcov/
 
 data/processed/catalogo_dashboard/
+
+.streamlit/secrets.toml
+
+*.pem

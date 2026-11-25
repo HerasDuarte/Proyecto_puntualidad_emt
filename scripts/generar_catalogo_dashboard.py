@@ -6,23 +6,18 @@ frecuencias oficiales por franja horaria desde data/raw/gtfs/.
 
 import argparse
 import logging
-import os
 import sys
 from pathlib import Path
 
 import polars as pl
 from dotenv import load_dotenv
-from huggingface_hub import HfApi
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
-from src.config import (  # noqa: E402
-    DIR_GTFS_ACTIVO,
-    DIR_PROCESSED,
-    HF_DATASET_ID_DEFECTO,
-)
+from src.config import DIR_GTFS_ACTIVO, DIR_PROCESSED  # noqa: E402
+from src.utils import obtener_cliente_hf  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -301,11 +296,7 @@ def construir_catalogo_dashboard(
 def subir_catalogo_hf(archivos: dict[str, Path]) -> None:
     """Sube los archivos del catálogo ligero al dataset de Hugging Face."""
     load_dotenv()
-    token = os.getenv("HF_TOKEN", "").strip()
-    dataset_id = os.getenv("HF_DATASET_ID", HF_DATASET_ID_DEFECTO).strip() or HF_DATASET_ID_DEFECTO
-    if not token:
-        raise RuntimeError("Falta HF_TOKEN en .env para subir el catálogo a Hugging Face.")
-    api = HfApi(token=token)
+    api, dataset_id = obtener_cliente_hf()
     for ruta in archivos.values():
         api.upload_file(
             path_or_fileobj=str(ruta),

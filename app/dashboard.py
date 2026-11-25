@@ -1,10 +1,8 @@
 ﻿import json
 import os
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -26,7 +24,13 @@ from src.config import (  # noqa: E402
     RUTA_HISTORIAL_GTFS_HF,
     RUTA_HISTORIAL_GTFS_LOCAL,
 )
-from src.utils import parsear_xml_trafico_gzip  # noqa: E402
+from src.utils import (  # noqa: E402
+    HEADERS_HTTP_PROYECTO,
+    calcular_distancia_haversine,
+    extraer_contexto_madrid,
+    formatear_hora_madrid,
+    parsear_xml_trafico_gzip,
+)
 
 load_dotenv()
 
@@ -42,11 +46,6 @@ URL_API_PARADA = os.getenv("URL_API_PARADA", f"{URL_API_BASE}/api/parada")
 URL_API_TENSION = os.getenv("URL_API_TENSION", f"{URL_API_BASE}/api/tension-hoy")
 
 DIR_CATALOGO_LOCAL = DIR_PROCESSED / "catalogo_dashboard"
-ZONA_MADRID = ZoneInfo("Europe/Madrid")
-HEADERS_HTTP = {
-    "User-Agent": "Mozilla/5.0 ProyectoPuntualidadEMT/1.0",
-    "Accept": "application/json",
-}
 USA_SCATTERMAP = hasattr(go, "Scattermap")
 TRANSFORMADOR_UTM_A_WGS84 = Transformer.from_crs(
     "EPSG:25830", "EPSG:4326", always_xy=True
@@ -93,51 +92,10 @@ def obtener_config_hf() -> tuple[str, str | None]:
     return (dataset_id or HF_DATASET_ID_DEFECTO), (hf_token or None)
 
 
-def formatear_hora_madrid(ts_iso: str | None) -> str:
-    """Convierte un timestamp ISO UTC a hora local de Madrid legible."""
-    if not ts_iso:
-        return "Sin datos"
-    try:
-        dt = datetime.fromisoformat(ts_iso.replace("Z", "+00:00"))
-        return dt.astimezone(ZONA_MADRID).strftime("%d/%m/%Y %H:%M:%S")
-    except ValueError:
-        return ts_iso
-
-
-def extraer_contexto_madrid(ts_iso: str | None) -> tuple[str, int]:
-    """Devuelve (tipo_dia GTFS, hora 0-23) en horario local de Madrid."""
-    try:
-        dt = (
-            datetime.fromisoformat(ts_iso.replace("Z", "+00:00"))
-            if ts_iso
-            else datetime.now(ZONA_MADRID)
-        ).astimezone(ZONA_MADRID)
-    except ValueError:
-        dt = datetime.now(ZONA_MADRID)
-    dia_sem = dt.weekday()
-    tipo_dia = "SA" if dia_sem == 5 else ("FE" if dia_sem == 6 else "LA")
-    return tipo_dia, dt.hour
-
-
-def calcular_distancias_m(
-    lat_ref: float, lon_ref: float, lats: np.ndarray, lons: np.ndarray
-) -> np.ndarray:
-    """Calcula distancias Haversine vectorizadas en metros."""
-    r_tierra = 6_371_000.0
-    lat1 = np.radians(lat_ref)
-    lon1 = np.radians(lon_ref)
-    lat2 = np.radians(lats.astype(float))
-    lon2 = np.radians(lons.astype(float))
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    a = np.sin(dlat / 2) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2) ** 2
-    return 2 * r_tierra * np.arcsin(np.sqrt(np.clip(a, 0.0, 1.0)))
-
-
 @st.cache_data(ttl=120)
 def cargar_datos_en_vivo(url: str) -> dict[str, Any]:
     """Consulta el endpoint /api/live de Cloudflare Workers (caché 2 min)."""
-    resp = requests.get(url, headers=HEADERS_HTTP, timeout=15)
+    resp = requests.get(url, headers=HEADERS_HTTP_PROYECTO, timeout=15)
     resp.raise_for_status()
     return resp.json()
 
@@ -146,7 +104,7 @@ def cargar_datos_en_vivo(url: str) -> dict[str, Any]:
 def consultar_parada_en_vivo(url_base: str, stop_id: str) -> dict[str, Any]:
     """Consulta /api/parada?id=XXXX con caché local de 2 minutos."""
     resp = requests.get(
-        url_base, params={"id": stop_id}, headers=HEADERS_HTTP, timeout=15
+        url_base, params={"id": stop_id}, headers=HEADERS_HTTP_PROYECTO, timeout=15
     )
     resp.raise_for_status()
     return resp.json()
@@ -155,7 +113,7 @@ def consultar_parada_en_vivo(url_base: str, stop_id: str) -> dict[str, Any]:
 @st.cache_data(ttl=300)
 def cargar_tension_hoy(url: str) -> dict[str, Any]:
     """Consulta /api/tension-hoy con las mayores esperas reales del día."""
-    resp = requests.get(url, headers=HEADERS_HTTP, timeout=15)
+    resp = requests.get(url, headers=HEADERS_HTTP_PROYECTO, timeout=15)
     resp.raise_for_status()
     return resp.json()
 
@@ -163,7 +121,7 @@ def cargar_tension_hoy(url: str) -> dict[str, Any]:
 @st.cache_data(ttl=300)
 def cargar_trafico_en_vivo(url: str) -> tuple[pd.DataFrame, str | None]:
     """Descarga el último boletín XML GZIP de D1 y proyecta UTM a lat/lon."""
-    resp = requests.get(url, headers=HEADERS_HTTP, timeout=20)
+    resp = requests.get(url, headers=HEADERS_HTTP_PROYECTO, timeout=20)
     resp.raise_for_status()
     payload = resp.json().get("trafico") or {}
     xml_b64 = payload.get("xml_gzip_base64")
@@ -393,7 +351,7 @@ with tab_viajero:
         carga_entorno = None
         sensores_cerca = 0
         if not df_traf_global.empty:
-            dists = calcular_distancias_m(
+            dists = calcular_distancia_haversine(
                 float(fila_parada["stop_lat"]),
                 float(fila_parada["stop_lon"]),
                 df_traf_global["lat"].to_numpy(),
@@ -610,7 +568,7 @@ with tab_viajero:
             lon_tr = df_traf_global["lon"].to_numpy()
             min_dist = np.full(len(df_traf_global), np.inf)
             for la, lo in zip(lat_rec, lon_rec, strict=True):
-                d = calcular_distancias_m(float(la), float(lo), lat_tr, lon_tr)
+                d = calcular_distancia_haversine(float(la), float(lo), lat_tr, lon_tr)
                 min_dist = np.minimum(min_dist, d)
             sensores_corredor = df_traf_global.loc[
                 (min_dist <= 450) & (df_traf_global["carga"] >= 20)

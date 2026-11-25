@@ -15,13 +15,20 @@ import pytest
 
 import scripts.archivar_nube_a_hf as archivar_hf
 import scripts.descargar_historico_hf as descargar_hf
+import scripts.generar_catalogo_dashboard as gen_cat
 import scripts.sincronizar_desde_cloudflare as sync_cf
 from scripts.sincronizar_desde_cloudflare import _parsear_xml_trafico_gzip
 from src.emt_realtime import ClienteEMTRealtime, _cargar_estado_cuota, construir_lista_paradas_estratificada
 from src.limpieza import limpiar_frequencies, limpiar_routes
 from src.meteorologia import obtener_meteorologia_actual
 from src.sensores_trafico import sanear_xml_madrid, vincular_trafico_a_paradas
-from src.utils import firmar_grafico_emt
+from src.utils import (
+    calcular_distancia_haversine,
+    extraer_contexto_madrid,
+    firmar_grafico_emt,
+    formatear_hora_madrid,
+    parsear_xml_trafico_gzip,
+)
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
@@ -643,3 +650,227 @@ def test_descargar_historico_desde_hf_incremental(tmp_path, monkeypatch):
     assert (dir_raw / "realtime" / "emt" / "emt_llegadas_20261118.parquet").read_bytes() == b"PARQUET_ANTIGUO_OK"
     assert (dir_raw / "realtime" / "emt" / "emt_llegadas_20261121.parquet").read_bytes() == b"CONTENIDO_emt_llegadas_20261121.parquet"
     assert (dir_vers_raw / "historial_gtfs_nube.json").exists()
+
+
+# ==============================================================================
+# 4. PRUEBAS DE UTILIDADES CENTRALIZADAS, VALIDACIONES Y CATÁLOGO DASHBOARD
+# ==============================================================================
+
+
+def test_utilidades_horario_madrid_y_haversine():
+    """Valida formateo CET/CEST, clasificación LA/SA/FE y Haversine."""
+    assert formatear_hora_madrid(None) == "Sin datos"
+    assert formatear_hora_madrid("2026-11-24T12:00:00Z") == "24/11/2026 13:00:00"
+    assert formatear_hora_madrid("2026-07-15T12:00:00Z") == "15/07/2026 14:00:00"
+    assert formatear_hora_madrid("fecha-invalida") == "fecha-invalida"
+
+    # Martes 24/11/2026 -> LA | Sábado 28/11/2026 -> SA | Domingo 29/11/2026 -> FE
+    assert extraer_contexto_madrid("2026-11-24T12:00:00Z") == ("LA", 13)
+    assert extraer_contexto_madrid("2026-11-28T12:00:00Z") == ("SA", 13)
+    assert extraer_contexto_madrid("2026-11-29T12:00:00Z") == ("FE", 13)
+
+    assert calcular_distancia_haversine(40.4168, -3.7038, 40.4168, -3.7038) == pytest.approx(0.0)
+    dists = calcular_distancia_haversine(
+        40.4192, -3.6931, np.array([40.4168, 40.4192]), np.array([-3.7038, -3.6931])
+    )
+    assert 800.0 < float(dists[0]) < 1100.0
+    assert float(dists[1]) == pytest.approx(0.0)
+
+
+def test_trafico_filtra_porcentajes_fuera_rango_y_xml_corrupto():
+    """Verifica saneamiento >100%, XML corrupto seguro, timestamp_trafico y DataFrames vacíos."""
+    xml_anomalo = """<?xml version="1.0" encoding="UTF-8"?>
+    <pms>
+      <fecha_hora>25/11/2026 11:00:00</fecha_hora>
+      <pm>
+        <idelem>PM43012</idelem>
+        <descripcion>Sensor anomalo</descripcion>
+        <tipo_elem>URB</tipo_elem>
+        <intensidad>-10</intensidad>
+        <ocupacion>150</ocupacion>
+        <carga>189</carga>
+        <nivelServicio>2</nivelServicio>
+        <velocidad>40</velocidad>
+        <error>N</error>
+        <st_x>441000</st_x>
+        <st_y>4475000</st_y>
+      </pm>
+    </pms>"""
+    xml_b64 = base64.b64encode(gzip.compress(xml_anomalo.encode("utf-8"))).decode("ascii")
+    df_sano = parsear_xml_trafico_gzip(xml_b64, "2026-11-25T10:00:00Z")
+
+    assert len(df_sano) == 1
+    assert np.isnan(df_sano.iloc[0]["intensidad"])
+    assert np.isnan(df_sano.iloc[0]["ocupacion"])
+    assert np.isnan(df_sano.iloc[0]["carga"])
+    assert float(df_sano.iloc[0]["nivelServicio"]) == 2.0
+
+    # XML corrupto o vacío debe devolver DataFrame vacío sin abortar el flujo
+    assert parsear_xml_trafico_gzip("", "2026-11-25T10:00:00Z").empty
+    corrupto_b64 = base64.b64encode(b"NO_ES_GZIP").decode("ascii")
+    assert parsear_xml_trafico_gzip(corrupto_b64, "2026-11-25T10:00:00Z").empty
+
+    # Validar que timestamp_trafico en vincular_trafico_a_paradas es texto real y tolera vacíos
+    df_stops = pd.DataFrame({"stop_id": ["923"], "stop_lat": [40.42], "stop_lon": [-3.69]})
+    df_sens = pd.DataFrame(
+        {
+            "timestamp_trafico": ["25/11/2026 11:00:00"],
+            "idelem": ["S1"],
+            "carga": [45.0],
+            "ocupacion": [20.0],
+            "intensidad": [600.0],
+            "nivel_servicio": [1.0],
+            "lat": [40.4205],
+            "lon": [-3.6905],
+        }
+    )
+    df_vinc = vincular_trafico_a_paradas(df_stops, df_sens)
+    assert isinstance(df_vinc.loc[0, "timestamp_trafico"], str)
+    assert df_vinc.loc[0, "timestamp_trafico"] == "25/11/2026 11:00:00"
+
+    df_vacio = vincular_trafico_a_paradas(df_stops, df_sens.iloc[0:0])
+    assert df_vacio.empty
+    assert "timestamp_trafico" in df_vacio.columns
+
+
+def test_errores_red_meteorologia_y_autenticacion_emt(monkeypatch, tmp_path):
+    """Valida errores descriptivos ante respuestas incompletas de Open-Meteo y EMT."""
+    class RespSinCurrent:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"status": "ok"}
+
+    monkeypatch.setattr(
+        "src.meteorologia.requests.get", lambda *args, **kwargs: RespSinCurrent()
+    )
+    with pytest.raises(ValueError, match="current"):
+        obtener_meteorologia_actual()
+
+    ruta_stops = tmp_path / "stops_limpio.csv"
+    pd.DataFrame({"stop_id": ["923"], "en_alta_densidad_real": [True]}).to_csv(
+        ruta_stops, index=False
+    )
+    monkeypatch.setenv("EMT_CLIENT_ID", "id_test")
+    monkeypatch.setenv("EMT_PASSKEY", "key_test")
+    monkeypatch.setattr("src.emt_realtime.RUTA_STOPS_PROCESADO", ruta_stops)
+    monkeypatch.setattr("src.emt_realtime.RUTA_ESTADO_CUOTA", tmp_path / "cuota.json")
+
+    class RespSinToken:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"code": "00", "data": [{}]}
+
+    monkeypatch.setattr(
+        "src.emt_realtime.requests.get", lambda *args, **kwargs: RespSinToken()
+    )
+    cliente = ClienteEMTRealtime(limite_ciclo=10)
+    with pytest.raises(RuntimeError, match="accessToken"):
+        cliente._autenticar()
+
+
+def test_generar_catalogo_dashboard_completo(tmp_path):
+    """Verifica la generación de los 5 Parquet ligeros y sus cálculos derivados."""
+    dir_gtfs = tmp_path / "gtfs"
+    dir_out = tmp_path / "catalogo_out"
+    dir_gtfs.mkdir()
+
+    (dir_gtfs / "routes.txt").write_text(
+        "route_id,agency_id,route_short_name,route_long_name,route_color\n"
+        "023,EMT,23,Plaza Mayor - Villaverde,0178BC\n",
+        encoding="utf-8",
+    )
+    (dir_gtfs / "stops.txt").write_text(
+        "stop_id,stop_name,stop_lat,stop_lon\n"
+        "923,Plaza Mayor,40.415,-3.707\n"
+        "924,Atocha,40.406,-3.691\n",
+        encoding="utf-8",
+    )
+    (dir_gtfs / "calendar.txt").write_text(
+        "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday\n"
+        "LA,1,1,1,1,1,0,0\n",
+        encoding="utf-8",
+    )
+    (dir_gtfs / "trips.txt").write_text(
+        "route_id,service_id,trip_id,trip_headsign,direction_id,shape_id\n"
+        "023,LA,T23_0,Villaverde,0,023_A\n",
+        encoding="utf-8",
+    )
+    (dir_gtfs / "stop_times.txt").write_text(
+        "trip_id,arrival_time,departure_time,stop_id,stop_sequence,shape_dist_traveled\n"
+        "T23_0,08:00:00,08:00:00,923,1,0\n"
+        "T23_0,08:10:00,08:10:00,924,2,2500.5\n",
+        encoding="utf-8",
+    )
+    (dir_gtfs / "shapes.txt").write_text(
+        "shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\n"
+        "023_A,40.415,-3.707,1\n"
+        "023_A,40.406,-3.691,2\n",
+        encoding="utf-8",
+    )
+    (dir_gtfs / "frequencies.txt").write_text(
+        "trip_id,start_time,end_time,headway_secs\n"
+        "T23_0,08:00:00,09:59:59,600\n",
+        encoding="utf-8",
+    )
+
+    archivos = gen_cat.construir_catalogo_dashboard(
+        dir_gtfs=dir_gtfs, dir_salida=dir_out
+    )
+
+    assert len(archivos) == 5
+    for ruta_pq in archivos.values():
+        assert ruta_pq.exists()
+
+    df_par = pd.read_parquet(archivos["paradas"])
+    assert df_par.loc[df_par["stop_id"] == "923", "lineas"].iloc[0] == "23"
+
+    df_rec = pd.read_parquet(archivos["recorridos_paradas"])
+    assert float(df_rec.loc[df_rec["stop_id"] == "923", "min_desde_cabecera"].iloc[0]) == 0.0
+    assert float(df_rec.loc[df_rec["stop_id"] == "924", "min_desde_cabecera"].iloc[0]) == 10.0
+
+    df_freq = pd.read_parquet(archivos["frecuencias_oficiales"])
+    assert set(df_freq["hora"].tolist()) == {8, 9}
+    assert float(df_freq["headway_min"].iloc[0]) == 10.0
+
+
+def test_archivar_nube_envia_token_en_cabecera_y_tolera_xml_corrupto():
+    """Valida envío de X-Sync-Token en headers y tolerancia a XML corrupto en tráfico."""
+    mock_api = MagicMock()
+    mock_api.token = "hf_test_token"
+
+    resp_export_1 = MagicMock()
+    resp_export_1.json.return_value = {
+        "rows": [
+            {
+                "id": 77,
+                "timestamp_captura_utc": "2026-11-25T10:00:00Z",
+                "xml_gzip_base64": "NO_VALIDO",
+            }
+        ]
+    }
+    resp_export_vacio = MagicMock()
+    resp_export_vacio.json.return_value = {"rows": list()}
+    resp_purge = MagicMock()
+
+    with patch.object(
+        archivar_hf.requests, "get", side_effect=[resp_export_1, resp_export_vacio]
+    ) as mock_get, patch.object(
+        archivar_hf.requests, "post", return_value=resp_purge
+    ) as mock_post:
+        total = archivar_hf.archivar_tabla_d1_a_hf(
+            mock_api,
+            "HerasDuarte/emt-madrid-realtime-data",
+            "https://worker.test",
+            "mi_secreto_sync",
+            "trafico_xml_raw",
+        )
+
+    assert total == 1
+    assert mock_get.call_args_list[0].kwargs["headers"]["X-Sync-Token"] == "mi_secreto_sync"
+    assert "token" not in mock_get.call_args_list[0].kwargs["params"]
+    assert mock_post.call_args.kwargs["headers"]["X-Sync-Token"] == "mi_secreto_sync"
+    assert "params" not in mock_post.call_args.kwargs

@@ -16,6 +16,8 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 
+from src.utils import HEADERS_HTTP_PROYECTO
+
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -32,6 +34,8 @@ def construir_lista_paradas_estratificada(ruta_stops: Path = RUTA_STOPS_PROCESAD
     Construye la secuencia rotativa de stop_id intercalando de forma equilibrada
     paradas del Interior de la M-30 y de la Periferia Exterior.
     """
+    if not ruta_stops.exists():
+        raise FileNotFoundError(f"Falta el fichero de paradas procesado: {ruta_stops}")
     df_stops = pd.read_csv(ruta_stops, dtype={"stop_id": str})
     m30 = df_stops.loc[df_stops["en_alta_densidad_real"], "stop_id"].tolist()
     periferia = df_stops.loc[~df_stops["en_alta_densidad_real"], "stop_id"].tolist()
@@ -104,7 +108,7 @@ class ClienteEMTRealtime:
         headers = {
             "X-ClientId": self.client_id,
             "passKey": self.passkey,
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ProyectoPuntualidadEMT/1.0",
+            "User-Agent": HEADERS_HTTP_PROYECTO["User-Agent"],
             "Accept": "application/json"
         }
         resp = requests.get(url_login, headers=headers, timeout=15)
@@ -115,7 +119,10 @@ class ClienteEMTRealtime:
             raise RuntimeError(f"Error de autenticación MobilityLabs: {datos}")
 
         bloque = next(iter(datos.get("data", list())), dict())
-        self.access_token = bloque["accessToken"]
+        token = bloque.get("accessToken")
+        if not token:
+            raise RuntimeError(f"Login EMT sin accessToken válido: {datos}")
+        self.access_token = token
         logging.info("Token de sesión MobilityLabs EMT renovado correctamente.")
 
     def _consultar_parada(self, stop_id: str) -> list[dict]:
@@ -127,7 +134,7 @@ class ClienteEMTRealtime:
         headers = {
             "accessToken": self.access_token,
             "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ProyectoPuntualidadEMT/1.0"
+            "User-Agent": HEADERS_HTTP_PROYECTO["User-Agent"]
         }
         payload = {
             "cultureInfo": "ES",
@@ -187,6 +194,8 @@ class ClienteEMTRealtime:
 
         n_consultas = min(tamano_lote, restantes)
         total_paradas = len(self.paradas_rotativas)
+        if total_paradas == 0:
+            raise RuntimeError("La lista estratificada de paradas está vacía.")
         registros_llegadas = list()
 
         for _ in range(n_consultas):

@@ -35,6 +35,9 @@ from src.config import (
     RUTA_HISTORIAL_GTFS_HF,
 )
 from src.utils import (
+    HEADERS_HTTP_PROYECTO,
+)
+from src.utils import (
     anexar_parquet_deduplicado as _anexar_parquet,
 )
 from src.utils import (
@@ -63,6 +66,7 @@ def _descargar_fichero_remoto_si_existe(api: HfApi, dataset_id: str, ruta_remota
             filename=ruta_remota,
             repo_type="dataset",
             token=api.token,
+            force_download=True,
         )
         ruta_destino.parent.mkdir(parents=True, exist_ok=True)
         ruta_destino.write_bytes(Path(descargado).read_bytes())
@@ -84,6 +88,9 @@ def respaldar_snapshot_gtfs_en_hf(api: HfApi, dataset_id: str) -> bool:
         return False
 
     hashes_remotos = _calcular_hashes_operativos_zip(zip_bytes)
+    if not hashes_remotos:
+        logging.warning("[HF-GTFS] El ZIP descargado no contiene tablas operativas válidas.")
+        return False
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         ruta_hist_tmp = Path(tmp_dir) / "historial_gtfs_nube.json"
@@ -98,7 +105,7 @@ def respaldar_snapshot_gtfs_en_hf(api: HfApi, dataset_id: str) -> bool:
         ]
 
         ahora_utc = datetime.now(timezone.utc).isoformat()
-        if not tablas_cambiadas:
+        if not tablas_cambiadas and historial:
             etiqueta_vigente = historial[-1]["version_tag"]
             historial[-1]["ultima_verificacion_utc"] = ahora_utc
             api.upload_file(
@@ -201,7 +208,8 @@ def archivar_tabla_d1_a_hf(api: HfApi, dataset_id: str, base_url: str, sync_toke
     while True:
         resp = requests.get(
             f"{base_url}/api/export",
-            params={"token": sync_token, "table": tabla},
+            params={"table": tabla},
+            headers={**HEADERS_HTTP_PROYECTO, "X-Sync-Token": sync_token},
             timeout=60,
         )
         resp.raise_for_status()
@@ -256,8 +264,8 @@ def archivar_tabla_d1_a_hf(api: HfApi, dataset_id: str, base_url: str, sync_toke
         # Purgar en Cloudflare D1 únicamente tras confirmar el commit en Hugging Face
         resp_purge = requests.post(
             f"{base_url}/api/purge",
-            params={"token": sync_token},
             json={"table": tabla, "max_id": max_id},
+            headers={**HEADERS_HTTP_PROYECTO, "X-Sync-Token": sync_token},
             timeout=30,
         )
         resp_purge.raise_for_status()

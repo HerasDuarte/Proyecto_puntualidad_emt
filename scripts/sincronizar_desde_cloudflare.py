@@ -43,6 +43,9 @@ from src.config import (
     RUTA_HISTORIAL_GTFS_LOCAL as RUTA_HISTORIAL_GTFS,
 )
 from src.utils import (
+    HEADERS_HTTP_PROYECTO,
+)
+from src.utils import (
     anexar_parquet_deduplicado as _anexar_parquet,
 )
 from src.utils import (
@@ -70,7 +73,8 @@ def sincronizar_tabla(base_url: str, token: str, tabla: str) -> int:
     while True:
         resp = requests.get(
             f"{base_url}/api/export",
-            params={"token": token, "table": tabla},
+            params={"table": tabla},
+            headers={**HEADERS_HTTP_PROYECTO, "X-Sync-Token": token},
             timeout=60,
         )
         resp.raise_for_status()
@@ -107,8 +111,8 @@ def sincronizar_tabla(base_url: str, token: str, tabla: str) -> int:
 
         resp_purge = requests.post(
             f"{base_url}/api/purge",
-            params={"token": token},
             json={"table": tabla, "max_id": max_id},
+            headers={**HEADERS_HTTP_PROYECTO, "X-Sync-Token": token},
             timeout=30,
         )
         resp_purge.raise_for_status()

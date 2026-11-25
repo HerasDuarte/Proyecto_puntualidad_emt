@@ -332,7 +332,12 @@ export default {
 
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    const token = url.searchParams.get("token");
+    const authHeader = request.headers.get("Authorization") || "";
+    const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+    const token =
+      request.headers.get("X-Sync-Token") ||
+      bearerToken ||
+      url.searchParams.get("token");
 
     if (url.pathname === "/api/export" || url.pathname === "/api/purge") {
       if (!env.SYNC_SECRET_TOKEN || token !== env.SYNC_SECRET_TOKEN) {
@@ -495,34 +500,63 @@ export default {
         });
       }
 
-      const tokenEmt = await asegurarTokenEMT(env);
-      const respEmt = await fetch(
-        `${BASE_URL_EMT}/transport/busemtmad/stops/${stopId}/arrives/`,
-        {
-          method: "POST",
-          headers: {
-            accessToken: tokenEmt,
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ProyectoPuntualidadEMT/1.0",
-          },
-          body: JSON.stringify({
-            cultureInfo: "ES",
-            Text_StopRequired_YN: "N",
-            Text_EstimationsRequired_YN: "Y",
-            Text_IncidencesRequired_YN: "N",
-            DateTime_Referenced_Incidencies_YYYYMMDD: "",
-          }),
-        }
-      );
+      let jsonEmt: any;
+      try {
+        let tokenEmt = await asegurarTokenEMT(env);
+        const consultarEmt = (tok: string) =>
+          fetch(`${BASE_URL_EMT}/transport/busemtmad/stops/${stopId}/arrives/`, {
+            method: "POST",
+            signal: AbortSignal.timeout(12000),
+            headers: {
+              accessToken: tok,
+              "Content-Type": "application/json",
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ProyectoPuntualidadEMT/1.0",
+            },
+            body: JSON.stringify({
+              cultureInfo: "ES",
+              Text_StopRequired_YN: "N",
+              Text_EstimationsRequired_YN: "Y",
+              Text_IncidencesRequired_YN: "N",
+              DateTime_Referenced_Incidencies_YYYYMMDD: "",
+            }),
+          });
 
-      if (!respEmt.ok) {
+        let respEmt = await consultarEmt(tokenEmt);
+        if (respEmt.status === 401) {
+          tokenEmt = await obtenerTokenEMT(env);
+          const nuevaExp = new Date(Date.now() + 4 * 3600 * 1000).toISOString();
+          await env.DB.prepare(
+            "UPDATE estado_cuota SET access_token = ?, token_expira_utc = ? WHERE id = 1"
+          )
+            .bind(tokenEmt, nuevaExp)
+            .run();
+          respEmt = await consultarEmt(tokenEmt);
+        }
+
+        if (!respEmt.ok) {
+          return Response.json(
+            { error: `Error al consultar EMT (${respEmt.status}).` },
+            { status: 502 }
+          );
+        }
+        jsonEmt = await respEmt.json();
+        if (jsonEmt?.code === "80") {
+          tokenEmt = await obtenerTokenEMT(env);
+          const nuevaExp = new Date(Date.now() + 4 * 3600 * 1000).toISOString();
+          await env.DB.prepare(
+            "UPDATE estado_cuota SET access_token = ?, token_expira_utc = ? WHERE id = 1"
+          )
+            .bind(tokenEmt, nuevaExp)
+            .run();
+          const reintento = await consultarEmt(tokenEmt);
+          if (reintento.ok) jsonEmt = await reintento.json();
+        }
+      } catch (err: any) {
         return Response.json(
-          { error: `Error al consultar EMT (${respEmt.status}).` },
+          { error: `Fallo de red consultando EMT: ${err?.message || err}` },
           { status: 502 }
         );
       }
-
-      const jsonEmt: any = await respEmt.json();
       const listaData = Array.isArray(jsonEmt?.data) ? jsonEmt.data : [];
       const arrivesRaw = Array.isArray(listaData.at(0)?.Arrive) ? listaData.at(0).Arrive : [];
 

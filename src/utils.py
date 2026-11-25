@@ -7,11 +7,14 @@ import base64
 import gzip
 import hashlib
 import io
+import logging
 import os
 import re
 import xml.etree.ElementTree as ET
 import zipfile
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -23,6 +26,57 @@ from src.config import (
     TABLAS_GTFS_OPERATIVAS,
     URL_GTFS_OFICIAL_EMT,
 )
+
+ZONA_MADRID = ZoneInfo("Europe/Madrid")
+HEADERS_HTTP_PROYECTO = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "ProyectoPuntualidadEMT/1.0"
+    ),
+    "Accept": "application/json",
+}
+
+
+def formatear_hora_madrid(ts_iso: str | None) -> str:
+    """Convierte un timestamp ISO UTC a hora local de Madrid legible."""
+    if not ts_iso:
+        return "Sin datos"
+    try:
+        dt = datetime.fromisoformat(ts_iso.replace("Z", "+00:00"))
+        return dt.astimezone(ZONA_MADRID).strftime("%d/%m/%Y %H:%M:%S")
+    except ValueError:
+        return ts_iso
+
+
+def extraer_contexto_madrid(ts_iso: str | None = None) -> tuple[str, int]:
+    """Devuelve (tipo_dia GTFS, hora 0-23) en horario local de Madrid."""
+    try:
+        dt = (
+            datetime.fromisoformat(ts_iso.replace("Z", "+00:00"))
+            if ts_iso
+            else datetime.now(ZONA_MADRID)
+        ).astimezone(ZONA_MADRID)
+    except ValueError:
+        dt = datetime.now(ZONA_MADRID)
+    dia_sem = dt.weekday()
+    tipo_dia = "SA" if dia_sem == 5 else ("FE" if dia_sem == 6 else "LA")
+    return tipo_dia, dt.hour
+
+
+def sanear_xml_madrid(contenido_bytes: bytes) -> str:
+    """Decodifica el XML municipal y sanea caracteres de control o '&' sueltos."""
+    try:
+        texto = contenido_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        texto = contenido_bytes.decode("latin-1", errors="replace")
+
+    texto = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", texto)
+    texto = re.sub(
+        r"&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)",
+        "&amp;",
+        texto,
+    )
+    return texto
 
 
 def punto_en_poligono(x, y, poligono):
@@ -153,11 +207,15 @@ def anexar_parquet_deduplicado(df_nuevo: pd.DataFrame, ruta_parquet: Path, cols_
 
 def parsear_xml_trafico_gzip(xml_gzip_b64: str, ts_captura_utc: str) -> pd.DataFrame:
     """Descomprime un boletín XML GZIP de D1 y devuelve los sensores operativos saneados."""
-    comprimido = base64.b64decode(xml_gzip_b64)
-    xml_texto = gzip.decompress(comprimido).decode("utf-8", errors="replace")
-    xml_limpio = re.sub(r"&(?!amp;|lt;|gt;|quot;|apos;|#)", "&amp;", xml_texto)
-    xml_limpio = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", xml_limpio)
-    raiz = ET.fromstring(xml_limpio)
+    if not xml_gzip_b64:
+        return pd.DataFrame()
+    try:
+        comprimido = base64.b64decode(xml_gzip_b64)
+        xml_limpio = sanear_xml_madrid(gzip.decompress(comprimido))
+        raiz = ET.fromstring(xml_limpio)
+    except (ValueError, OSError, ET.ParseError) as exc:
+        logging.warning("Boletín XML de tráfico inválido o corrupto: %s", exc)
+        return pd.DataFrame()
 
     fecha_hora_el = raiz.find("fecha_hora")
     fecha_boletin = fecha_hora_el.text.strip() if fecha_hora_el is not None and fecha_hora_el.text else ""
@@ -181,7 +239,14 @@ def parsear_xml_trafico_gzip(xml_gzip_b64: str, ts_captura_utc: str) -> pd.DataF
             "st_x": pd.to_numeric((pm.findtext("st_x") or "").replace(",", "."), errors="coerce"),
             "st_y": pd.to_numeric((pm.findtext("st_y") or "").replace(",", "."), errors="coerce"),
         })
-    return pd.DataFrame(registros)
+    df_res = pd.DataFrame(registros)
+    if df_res.empty:
+        return df_res
+    for col in ("intensidad", "ocupacion", "carga", "nivelServicio", "velocidad"):
+        df_res.loc[df_res[col] < 0, col] = np.nan
+    for col_pct in ("ocupacion", "carga"):
+        df_res.loc[df_res[col_pct] > 100, col_pct] = np.nan
+    return df_res
 
 def descargar_zip_gtfs_oficial(timeout: int = 90) -> bytes:
     """Descarga el paquete ZIP oficial gtfs_emt.zip desde el portal CKAN de EMT Madrid."""

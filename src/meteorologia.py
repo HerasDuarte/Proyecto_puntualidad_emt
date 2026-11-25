@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 import pandas as pd
 import requests
 
+from src.utils import HEADERS_HTTP_PROYECTO
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 URL_OPEN_METEO = "".join(["https://", "api.open-meteo.com", "/v1/forecast"])
@@ -46,15 +48,18 @@ def obtener_meteorologia_actual(
         "timezone": "Europe/Madrid"
     }
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ProyectoPuntualidadEMT/1.0"
-    }
-
-    resp = requests.get(URL_OPEN_METEO, params=params, headers=headers, timeout=timeout)
+    resp = requests.get(
+        URL_OPEN_METEO,
+        params=params,
+        headers=HEADERS_HTTP_PROYECTO,
+        timeout=timeout,
+    )
     resp.raise_for_status()
     datos = resp.json()
 
-    actual = datos.get("current", {})
+    actual = datos.get("current")
+    if not isinstance(actual, dict) or not actual:
+        raise ValueError("Respuesta de Open-Meteo sin bloque 'current' válido.")
     ahora_utc = datetime.now(timezone.utc)
 
     df_meteo = pd.DataFrame([{
