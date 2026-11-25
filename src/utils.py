@@ -475,3 +475,26 @@ def auditar_cuarentenas_gtfs_zip(
         }
 
     return incidencias
+
+
+def calcular_indice_friccion(ocupacion: np.ndarray | float, carga: np.ndarray | float, intensidad: np.ndarray | float) -> np.ndarray | float:
+    """Calcula el índice de fricción vial penalizando la alta ocupación/carga con baja intensidad."""
+    intensidad_segura = np.maximum(intensidad, 1.0)
+    return (ocupacion * carga) / intensidad_segura
+
+
+def calcular_regimen_trafico(carga: np.ndarray | float, intensidad: np.ndarray | float) -> np.ndarray | str:
+    """Segmenta el régimen de tráfico en función de la saturación (carga) y el flujo (intensidad)."""
+    return np.select(
+        [
+            (carga >= 70.0) & (intensidad < 200.0),
+            (carga >= 40.0) & (intensidad >= 200.0),
+            (carga < 40.0) & (intensidad >= 200.0),
+        ],
+        [
+            "Colapso_Estatico",
+            "Saturado_Con_Movimiento",
+            "Fluido",
+        ],
+        default="Libre",
+    )

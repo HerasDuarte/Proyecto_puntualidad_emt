@@ -24,6 +24,8 @@ from src.meteorologia import obtener_meteorologia_actual
 from src.sensores_trafico import sanear_xml_madrid, vincular_trafico_a_paradas
 from src.utils import (
     calcular_distancia_haversine,
+    calcular_indice_friccion,
+    calcular_regimen_trafico,
     extraer_contexto_madrid,
     firmar_grafico_emt,
     formatear_hora_madrid,
@@ -878,3 +880,25 @@ def test_archivar_nube_envia_token_en_cabecera_y_tolera_xml_corrupto():
     assert "token" not in mock_get.call_args_list[0].kwargs["params"]
     assert mock_post.call_args.kwargs["headers"]["X-Sync-Token"] == "mi_secreto_sync"
     assert "params" not in mock_post.call_args.kwargs
+
+
+
+def test_unitario_features_trafico_utils():
+    """Valida los cálculos matemáticos puros de fricción y régimen de tráfico ante casos límite."""
+    # Caso 1: Intensidad cero (evita división por cero y evalúa fricción)
+    friccion_cero = calcular_indice_friccion(
+        ocupacion=np.array([50.0]),
+        carga=np.array([80.0]),
+        intensidad=np.array([0.0])
+    )
+    assert float(friccion_cero[0]) == pytest.approx(4000.0) # (50 * 80) / max(0, 1)
+
+    # Caso 2: Clasificación de regímenes de tráfico
+    cargas = np.array([20.0, 50.0, 80.0, 20.0])
+    intensidades = np.array([10.0, 300.0, 50.0, 500.0])
+    regimenes = calcular_regimen_trafico(cargas, intensidades)
+
+    assert regimenes[0] == "Libre"                   # Carga baja, intensidad baja
+    assert regimenes[1] == "Saturado_Con_Movimiento" # Carga media-alta, intensidad alta
+    assert regimenes[2] == "Colapso_Estatico"        # Carga alta (>=70), intensidad baja (<200)
+    assert regimenes[3] == "Fluido"                  # Carga baja (<40), intensidad alta (>=200)
