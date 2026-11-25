@@ -41,7 +41,7 @@ El repositorio sigue una estructura modular de ingeniería de software que separ
     │   └── processed/
     │       ├── *_limpio.csv                 # 8 tablas GTFS saneadas
     │       ├── m30_oficial.geojson          # Polígono oficial de la circunvalación M-30
-    │       ├── maestro_gtfs.parquet         # Tabla Analítica Maestra consolidada (46 columnas)
+    │       ├── maestro_gtfs.parquet         # Tabla Analítica Maestra consolidada (49 columnas)
     │       ├── catalogo_dashboard/          # Catálogo Parquet optimizado (846 KB) para el dashboard
     │       ├── cuarentena/                  # Registros huérfanos aislados pendientes de reconciliación
     │       └── versiones_gtfs/              # Historial JSON y copias versionadas de maestro_gtfs
@@ -109,7 +109,7 @@ El pipeline de ingeniería procesa y valida **8 tablas relacionales** y las cons
 | **`trips_limpio.csv`** | Pandas + PyArrow | 86.871 | 8 | Expediciones activas, rotación de turnos físicos (`block_id`) y `volumen_viajes_bloque`. |
 | **`stop_times_limpio.csv`** | **Polars Lazy** | 2.232.015 | 11 | Malla horaria masiva, `tiempo_tramo_teorico_seg`, `distancia_tramo_m`, `progreso_viaje_pct`, `densidad_paradas_acumuladas`. |
 | **`frequencies_limpio.csv`** | Pandas + PyArrow | 86.871 | 9 | Cadencias dinámicas, `autobuses_por_hora`, `duracion_franja_secs`, `hora_central_franja`. |
-| **`maestro_gtfs.parquet`** | **Polars + ZSTD** | **2.232.015** | **46** | **Golden Dataset estructural (69,30 MB)** enriquecido con `tipo_jornada`, `velocidad_teorica_kmh`, `saturacion_marquesina_15min`, `friccion_acumulada_m30`, `indice_sinuosidad_normalizado` y codificación cíclica `hora_seno`/`hora_coseno`. |
+| **`maestro_gtfs.parquet`** | **Polars + ZSTD** | **2.232.015** | **49** | **Golden Dataset estructural (69,30 MB)** enriquecido con `tipo_jornada`, `velocidad_teorica_kmh`, `saturacion_marquesina_15min`, `friccion_acumulada_m30`, `indice_sinuosidad_normalizado` y codificación cíclica `hora_seno`/`hora_coseno`. |
 
 ---
 
@@ -138,7 +138,7 @@ El pipeline de ingeniería procesa y valida **8 tablas relacionales** y las cons
     python -m scripts.pipeline_limpieza
     python -m scripts.construir_maestro_gtfs
 
-*(Valida y sanea las 8 tablas relacionales del catálogo GTFS oficial y las ensambla mediante Polars Lazy en el Golden Dataset estructural `data/processed/maestro_gtfs.parquet` de 46 columnas).*
+*(Valida y sanea las 8 tablas relacionales del catálogo GTFS oficial y las ensambla mediante Polars Lazy en el Golden Dataset estructural `data/processed/maestro_gtfs.parquet` de 49 columnas).*
 
 ### 3. Ejecución de la Ingesta en Tiempo Real y Sincronización Cloud
 
@@ -182,7 +182,7 @@ El pipeline de ingeniería procesa y valida **8 tablas relacionales** y las cons
 ## 🗺️ Hoja de Ruta (Roadmap)
 
 - [x] **Fase 1 — Auditoría Exploratoria (EDA GTFS):** Análisis forense, visualización corporativa, cartografía estática/interactiva (`reports/`) y diccionarios de datos de las 8 tablas GTFS (`notebooks/01` a `08`).
-- [x] **Fase 2 — Ingeniería de Datos Estructural y Tabla Maestra:** Pipeline híbrido (`PyArrow` + `Polars Lazy`), modularización DRY (`src/utils.py`), auditoría relacional (`09_EDA_maestro.ipynb`), generación de `maestro_gtfs.parquet` (46 columnas) y validación dinámica con `pytest`.
+- [x] **Fase 2 — Ingeniería de Datos Estructural y Tabla Maestra:** Pipeline híbrido (`PyArrow` + `Polars Lazy`), modularización DRY (`src/utils.py`), auditoría relacional (`09_EDA_maestro.ipynb`), generación de `maestro_gtfs.parquet` (49 columnas) y validación dinámica con `pytest`.
 - [x] **Fase 3A — Auditoría Espacial de Tráfico y Orquestación Serverless 24/7:** Ingesta XML del Ayuntamiento de Madrid (`10_EDA_sensores_trafico.ipynb`), motor espacial *IDW* (`src/sensores_trafico.py`), despliegue continuo en **Cloudflare Workers + D1** (`cloudflare_worker/`) y sincronizador seguro a Parquet (`scripts/sincronizar_desde_cloudflare.py`).
 - [ ] **Fase 3B — EDAs Dinámicos (`11_EDA_meteorologia.ipynb` y `12_EDA_llegadas_emt.ipynb`) y Modelo 1 (*Baseline GTFS*):** Auditoría de las capturas en vivo, cálculo de la variable objetivo (`retraso_real_seg`) contra `maestro_gtfs.parquet` y entrenamiento del primer modelo base.
 - [ ] **Fase 4 — Entrenamiento y Evaluación del Modelo 2 (*Contexto Vial*):** Acoplamiento temporal y espacial de las métricas de `src/sensores_trafico.py` sobre el conjunto experimental y medición de ganancia respecto al Modelo 1.

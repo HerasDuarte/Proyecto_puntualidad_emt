@@ -25,7 +25,7 @@ def construir_tabla_maestra_gtfs(processed_dir=None, output_path=None):
       - hora_seno, hora_coseno
       - saturacion_marquesina_15min
 
-    Retorna el DataFrame consolidado de Polars (2.232.015 filas x 46 columnas base).
+    Retorna el DataFrame consolidado de Polars (2.232.015 filas x 49 columnas base).
     """
     base_dir = Path(processed_dir) if processed_dir else Path("../data/processed")
     ruta_salida = Path(output_path) if output_path else base_dir / "maestro_gtfs.parquet"
