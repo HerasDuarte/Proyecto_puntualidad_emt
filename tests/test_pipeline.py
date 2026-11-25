@@ -208,6 +208,9 @@ def test_trafico_saneamiento_xml_y_cruce_idw():
     assert int(df_res.loc[0, "num_sensores_500m"]) == 2
     assert float(df_res.loc[0, "trafico_nivel_servicio_max"]) == 3.0
     assert 40.0 < float(df_res.loc[0, "trafico_carga_entorno"]) < 60.0
+    assert df_res.loc[0, "trafico_regimen"] in {"Fluido", "Saturado_Con_Movimiento", "Colapso_Estatico", "Libre"}
+    assert not np.isnan(float(df_res.loc[0, "trafico_indice_friccion"]))
+    assert not np.isnan(float(df_res.loc[0, "trafico_presion_entorno"]))
 
     assert bool(df_res.loc[1, "tiene_cobertura_trafico_500m"]) is False
     assert np.isnan(df_res.loc[1, "trafico_carga_entorno"])

@@ -14,7 +14,9 @@ Registro operativo de tareas de ingeniería de datos, captura en tiempo real y m
 ## 📊 Hoja de Trabajo Técnica (Fases 3 a 5)
 - [x] **Cierre de Capa Estructural (`notebooks/09_EDA_maestro.ipynb`):**
   - Realizado análisis exploratorio sobre `maestro_gtfs.parquet` (2.232.015 tramos unificados) e implementado *Feature Engineering* relacional estructural (`tipo_jornada`, `indice_sinuosidad_normalizado`, `velocidad_teorica_kmh`, `saturacion_marquesina_15min`, `friccion_acumulada_m30`, `hora_seno` y `hora_coseno`) en `src/consolidacion.py`.
-- [x] **Auditoría Espacial de Tráfico Urbano (`notebooks/10_EDA_sensores_trafico.ipynb`):**
+- [x] **Auditoría Espacial de Tráfico Urbano e Ingeniería de Características (`notebooks/10_EDA_sensores_trafico.ipynb`):**
+  - Auditado el boletín en vivo de **4.904 puntos de medida** del Ayuntamiento de Madrid, generando `docs/10_sensores_trafico_Dict.md` y `reports/mapa_sensores_trafico.html`, e implementado el cruce geodésico *IDW* en `src/sensores_trafico.py`.
+  - Incorporadas **3 nuevas variables de interacción relacional (Feature Engineering)**: `trafico_regimen` (categórica), `trafico_indice_friccion` (continua) y `trafico_presion_entorno` (decaimiento espacial a corto alcance).
   - Auditado el boletín en vivo de **4.904 puntos de medida** del Ayuntamiento de Madrid (`4.362` operativos), generando `docs/10_sensores_trafico_Dict.md` y `reports/mapa_sensores_trafico.html`, e implementado el cruce geodésico *IDW* en `src/sensores_trafico.py`.
 - [x] **Arquitectura de Ingesta Sincronizada Multi-Fuente 24/7 (`Local + Serverless Cloud`):**
   - Implementados conectores locales (`src/meteorologia.py`, `src/emt_realtime.py`, `scripts/ejecutar_ingesta_realtime.py`) y orquestador autónomo 24/7 en **Cloudflare Workers + D1** (`cloudflare_worker/src/index.ts`).

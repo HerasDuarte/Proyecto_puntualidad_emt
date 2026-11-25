@@ -24,3 +24,6 @@ A continuación se incluye un resumen para referencia rápida:
 | **Cruce Espacial EMT** | `trafico_ocupacion_entorno` | `Float64` | Porcentaje medio ponderado (*IDW*, `0–100%`) de ocupación del carril en el entorno de la parada. |
 | **Cruce Espacial EMT** | `trafico_intensidad_entorno` | `Float64` | Flujo vehicular medio ponderado (*IDW*, `veh/h`) en el entorno inmediato de la parada. |
 | **Cruce Espacial EMT** | `trafico_nivel_servicio_max` | `Float64` | Peor nivel de servicio semafórico (`0` a `3`) registrado dentro del radio operativo de la parada. |
+| **Cruce Espacial EMT** | `trafico_regimen` | `String` | Régimen de tráfico categórico del entorno (`"Fluido"`, `"Saturado_Con_Movimiento"`, `"Colapso_Estatico"`, `"Libre"`). |
+| **Cruce Espacial EMT** | `trafico_indice_friccion` | `Float64` | Índice de fricción vial ponderado (`(Ocupación × Carga) / max(Intensidad, 1)`). |
+| **Cruce Espacial EMT** | `trafico_presion_entorno` | `Float64` | Presión de congestión ponderada con decaimiento espacial reforzado a corto alcance ($\le 250\text{ m}$). |

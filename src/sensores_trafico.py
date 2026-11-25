@@ -208,6 +208,31 @@ def vincular_trafico_a_paradas(
         nivel_servicio_max >= 0, nivel_servicio_max, np.nan
     )
 
+    # Ingeniería de Características Avanzada (Modelo 2 / Tráfico Urbano)
+    # 1. Índice de Fricción Vial (Ocupación * Carga / max(Intensidad, 1))
+    intensidad_segura = np.maximum(intensidad_idw, 1.0)
+    indice_friccion = (ocupacion_idw * carga_idw) / intensidad_segura
+
+    # 2. Presión de Congestión Ponderada (Carga ponderada por cercanía directa)
+    pesos_cercania = np.where(matriz_dist_m <= 250.0, 1.5, 1.0)
+    pesos_presion = np.where(mascara_efectiva, pesos_cercania / np.maximum(matriz_dist_m, 10.0), 0.0)
+    presion_idw = _media_ponderada_idw(df_sensores_limpio["carga"].to_numpy(), pesos_presion)
+
+    # 3. Régimen de Tráfico Categórico del Entorno
+    regimen = np.select(
+        [
+            (carga_idw >= 70.0) & (intensidad_idw < 200.0),
+            (carga_idw >= 40.0) & (intensidad_idw >= 200.0),
+            (carga_idw < 40.0) & (intensidad_idw >= 200.0),
+        ],
+        [
+            "Colapso_Estatico",
+            "Saturado_Con_Movimiento",
+            "Fluido",
+        ],
+        default="Libre",
+    )
+
     df_resultado = pd.DataFrame(
         {
             "stop_id": df_stops["stop_id"].astype(str).values,
@@ -219,6 +244,9 @@ def vincular_trafico_a_paradas(
             "trafico_ocupacion_entorno": np.round(ocupacion_idw, 2),
             "trafico_intensidad_entorno": np.round(intensidad_idw, 1),
             "trafico_nivel_servicio_max": nivel_servicio_max,
+            "trafico_regimen": regimen,
+            "trafico_indice_friccion": np.round(indice_friccion, 3),
+            "trafico_presion_entorno": np.round(presion_idw, 2),
         }
     )
     return df_resultado
