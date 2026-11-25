@@ -4,12 +4,14 @@ Centraliza algoritmos genéricos reutilizables en múltiples fases del pipeline.
 """
 
 import base64
+import csv
 import gzip
 import hashlib
 import io
 import logging
 import os
 import re
+import time
 import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime
@@ -248,17 +250,39 @@ def parsear_xml_trafico_gzip(xml_gzip_b64: str, ts_captura_utc: str) -> pd.DataF
         df_res.loc[df_res[col_pct] > 100, col_pct] = np.nan
     return df_res
 
-def descargar_zip_gtfs_oficial(timeout: int = 90) -> bytes:
-    """Descarga el paquete ZIP oficial gtfs_emt.zip desde el portal CKAN de EMT Madrid."""
-    resp_zip = requests.get(
-        URL_GTFS_OFICIAL_EMT,
-        headers={"User-Agent": "Mozilla/5.0 ProyectoPuntualidadEMT/1.0"},
-        timeout=timeout,
+def descargar_zip_gtfs_oficial(
+    timeout: int = 90, reintentos: int = 3
+) -> bytes:
+    """Descarga gtfs_emt.zip desde CKAN EMT Madrid con reintentos ante fallos de red."""
+    ultimo_error: Exception | None = None
+    for intento in range(1, max(reintentos, 1) + 1):
+        try:
+            resp_zip = requests.get(
+                URL_GTFS_OFICIAL_EMT,
+                headers={"User-Agent": HEADERS_HTTP_PROYECTO["User-Agent"]},
+                timeout=timeout,
+            )
+            resp_zip.raise_for_status()
+            if not zipfile.is_zipfile(io.BytesIO(resp_zip.content)):
+                raise ValueError(
+                    "El archivo descargado desde datos.emtmadrid.es no es un ZIP válido."
+                )
+            return resp_zip.content
+        except (requests.RequestException, ValueError) as exc:
+            ultimo_error = exc
+            if intento < reintentos:
+                espera = 2 * intento
+                logging.warning(
+                    "Reintento %d/%d descargando GTFS en %ds (%s).",
+                    intento,
+                    reintentos,
+                    espera,
+                    exc,
+                )
+                time.sleep(espera)
+    raise RuntimeError(
+        f"No se pudo descargar gtfs_emt.zip tras {reintentos} intentos: {ultimo_error}"
     )
-    resp_zip.raise_for_status()
-    if not zipfile.is_zipfile(io.BytesIO(resp_zip.content)):
-        raise ValueError("El archivo descargado desde datos.emtmadrid.es no es un ZIP válido.")
-    return resp_zip.content
 
 
 def calcular_hashes_operativos_zip(zip_bytes: bytes) -> dict[str, str]:
@@ -279,3 +303,175 @@ def obtener_cliente_hf() -> tuple[HfApi, str]:
     if not hf_token:
         raise ValueError("Falta HF_TOKEN en las variables de entorno o archivo .env")
     return HfApi(token=hf_token), dataset_id
+
+
+def _leer_csv_desde_zip(zf: zipfile.ZipFile, nombre_archivo: str) -> list[dict[str, str]]:
+    """Lee un archivo .txt dentro de un ZIP GTFS buscando coincidencia por nombre."""
+    objetivo = next(
+        (n for n in zf.namelist() if Path(n).name == nombre_archivo),
+        None,
+    )
+    if not objetivo:
+        return []
+    with zf.open(objetivo, "r") as fh:
+        lector = csv.DictReader(io.TextIOWrapper(fh, encoding="utf-8-sig"))
+        return list(lector)
+
+
+def _hora_gtfs_a_segundos(valor: str | None) -> int | None:
+    """Convierte una hora GTFS HH:MM:SS a segundos o None si es inválida."""
+    if not valor:
+        return None
+    partes = valor.strip().split(":")
+    if len(partes) != 3:
+        return None
+    try:
+        return int(partes[0]) * 3600 + int(partes[1]) * 60 + int(partes[2])
+    except ValueError:
+        return None
+
+
+def comparar_zips_gtfs(
+    zip_anterior_bytes: bytes | None, zip_nuevo_bytes: bytes
+) -> dict[str, object]:
+    """Compara dos paquetes ZIP GTFS y resume altas, bajas y variaciones clave."""
+    def _extraer_metricas(raw: bytes) -> dict[str, object]:
+        with zipfile.ZipFile(io.BytesIO(raw), "r") as zf:
+            stops = {
+                (r.get("stop_id") or "").strip()
+                for r in _leer_csv_desde_zip(zf, "stops.txt")
+                if (r.get("stop_id") or "").strip()
+            }
+            routes = {
+                (r.get("route_short_name") or r.get("route_id") or "").strip()
+                for r in _leer_csv_desde_zip(zf, "routes.txt")
+                if (r.get("route_short_name") or r.get("route_id") or "").strip()
+            }
+            trips = _leer_csv_desde_zip(zf, "trips.txt")
+            freqs = _leer_csv_desde_zip(zf, "frequencies.txt")
+            return {
+                "stops": stops,
+                "routes": routes,
+                "n_trips": len(trips),
+                "n_freqs": len(freqs),
+            }
+
+    nuevo = _extraer_metricas(zip_nuevo_bytes)
+    if not zip_anterior_bytes:
+        return {
+            "total_paradas": len(nuevo["stops"]),
+            "total_lineas": len(nuevo["routes"]),
+            "total_viajes": nuevo["n_trips"],
+            "paradas_altas": 0,
+            "paradas_bajas": 0,
+            "lineas_altas": 0,
+            "lineas_bajas": 0,
+            "viajes_delta": 0,
+            "frecuencias_delta": 0,
+        }
+
+    prev = _extraer_metricas(zip_anterior_bytes)
+    altas_p = sorted(nuevo["stops"] - prev["stops"])
+    bajas_p = sorted(prev["stops"] - nuevo["stops"])
+    altas_l = sorted(nuevo["routes"] - prev["routes"])
+    bajas_l = sorted(prev["routes"] - nuevo["routes"])
+
+    return {
+        "total_paradas": len(nuevo["stops"]),
+        "total_lineas": len(nuevo["routes"]),
+        "total_viajes": nuevo["n_trips"],
+        "paradas_altas": len(altas_p),
+        "paradas_bajas": len(bajas_p),
+        "lineas_altas": len(altas_l),
+        "lineas_bajas": len(bajas_l),
+        "viajes_delta": int(nuevo["n_trips"]) - int(prev["n_trips"]),
+        "frecuencias_delta": int(nuevo["n_freqs"]) - int(prev["n_freqs"]),
+        "ejemplos_paradas_altas": altas_p[:8],
+        "ejemplos_paradas_bajas": bajas_p[:8],
+        "ejemplos_lineas_altas": altas_l[:8],
+        "ejemplos_lineas_bajas": bajas_l[:8],
+    }
+
+
+def auditar_cuarentenas_gtfs_zip(
+    zip_bytes: bytes,
+) -> dict[str, dict[str, object]]:
+    """Audita integridad referencial y física del ZIP GTFS devolviendo cuarentenas y motivo."""
+    incidencias: dict[str, dict[str, object]] = {}
+    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+        routes_rows = _leer_csv_desde_zip(zf, "routes.txt")
+        stops_rows = _leer_csv_desde_zip(zf, "stops.txt")
+        cal_rows = _leer_csv_desde_zip(zf, "calendar.txt")
+        cal_dates_rows = _leer_csv_desde_zip(zf, "calendar_dates.txt")
+        trips_rows = _leer_csv_desde_zip(zf, "trips.txt")
+        freq_rows = _leer_csv_desde_zip(zf, "frequencies.txt")
+
+    route_ids = {
+        (r.get("route_id") or "").strip()
+        for r in routes_rows
+        if (r.get("route_id") or "").strip()
+    }
+    service_ids = {
+        (r.get("service_id") or "").strip()
+        for r in cal_rows + cal_dates_rows
+        if (r.get("service_id") or "").strip()
+    }
+    trip_ids_validos: set[str] = set()
+
+    stops_invalidas = 0
+    for r in stops_rows:
+        try:
+            lat = float(r.get("stop_lat", ""))
+            lon = float(r.get("stop_lon", ""))
+            if not (40.1 <= lat <= 40.8 and -4.2 <= lon <= -3.2):
+                stops_invalidas += 1
+        except ValueError:
+            stops_invalidas += 1
+    if stops_invalidas > 0:
+        incidencias["stops.txt"] = {
+            "cantidad": stops_invalidas,
+            "motivo": "Coordenadas vacías o fuera del ámbito geográfico de Madrid",
+        }
+
+    trips_huerfanos = 0
+    for r in trips_rows:
+        tid = (r.get("trip_id") or "").strip()
+        rid = (r.get("route_id") or "").strip()
+        sid = (r.get("service_id") or "").strip()
+        if not tid or rid not in route_ids or sid not in service_ids:
+            trips_huerfanos += 1
+        else:
+            trip_ids_validos.add(tid)
+    if trips_huerfanos > 0:
+        incidencias["trips.txt"] = {
+            "cantidad": trips_huerfanos,
+            "motivo": "Viajes huérfanos sin route_id o service_id válido",
+        }
+
+    freq_huerfanas = 0
+    freq_invertidas = 0
+    for r in freq_rows:
+        tid = (r.get("trip_id") or "").strip()
+        ini = _hora_gtfs_a_segundos(r.get("start_time"))
+        fin = _hora_gtfs_a_segundos(r.get("end_time"))
+        try:
+            headway = float(r.get("headway_secs", "0"))
+        except ValueError:
+            headway = 0.0
+        if tid not in trip_ids_validos:
+            freq_huerfanas += 1
+        elif ini is None or fin is None or ini >= fin or headway <= 0:
+            freq_invertidas += 1
+
+    if freq_huerfanas + freq_invertidas > 0:
+        motivos = []
+        if freq_huerfanas > 0:
+            motivos.append(f"{freq_huerfanas} huérfanas sin trip_id válido")
+        if freq_invertidas > 0:
+            motivos.append(f"{freq_invertidas} con franja invertida o headway <= 0")
+        incidencias["frequencies.txt"] = {
+            "cantidad": freq_huerfanas + freq_invertidas,
+            "motivo": "; ".join(motivos),
+        }
+
+    return incidencias

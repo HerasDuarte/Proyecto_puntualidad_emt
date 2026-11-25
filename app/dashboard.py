@@ -755,98 +755,122 @@ with tab_viajero:
 
         st.divider()
 
-        # --- Bloque B: Semáforo de Líneas Tensionadas HOY ---
-        st.subheader("🚦 Semáforo de Líneas Tensionadas HOY (vs. Frecuencia GTFS)")
+        # --- Bloque B: Semáforo de Líneas Tensionadas HOY + Histórico ---
+        st.subheader("🚦 Semáforo de Líneas Tensionadas HOY y Recurrencia Histórica")
         st.caption(
-            "Compara las esperas reales medidas hoy por el recolector frente a "
-            "la frecuencia oficial programada en esa línea, día y hora."
+            "Cruza las esperas reales medidas hoy frente a la frecuencia oficial GTFS, "
+            "agregando además la recurrencia histórica de paradas reincidentes."
         )
         try:
+            # 1. Cargar histórico acumulado de tensión desde HF si existe
+            ds_id_th, hf_tok_th = obtener_config_hf()
+            df_historico_ten = pd.DataFrame()
+            try:
+                ruta_hist_ten = hf_hub_download(
+                    repo_id=ds_id_th,
+                    filename="analytics/resumen_tension_diaria.parquet",
+                    repo_type="dataset",
+                    token=hf_tok_th,
+                )
+                df_historico_ten = pd.read_parquet(ruta_hist_ten)
+            except Exception:
+                pass
+
+            # 2. Datos de hoy desde el Worker
             datos_ten = cargar_tension_hoy(URL_API_TENSION)
             regs = datos_ten.get("registros") or []
-            if not regs:
-                st.info("Aún no hay suficientes capturas en el día de hoy.")
+            if not regs and df_historico_ten.empty:
+                st.info("Aún no hay suficientes capturas ni histórico de tensión disponible.")
             else:
-                df_ten = pd.DataFrame(regs)
-                df_ten["stop_id"] = df_ten["stop_id"].astype(str).str.strip()
-                df_ten["line"] = df_ten["line"].astype(str).str.strip()
+                if regs:
+                    df_ten = pd.DataFrame(regs)
+                    df_ten["stop_id"] = df_ten["stop_id"].astype(str).str.strip()
+                    df_ten["line"] = df_ten["line"].astype(str).str.strip()
 
-                ctx_list = df_ten["ultima_captura_utc"].apply(
-                    extraer_contexto_madrid
-                )
-                df_ten["tipo_dia"] = [c[0] for c in ctx_list]
-                df_ten["hora"] = [c[1] for c in ctx_list]
-                df_ten["hora_txt"] = df_ten["ultima_captura_utc"].apply(
-                    lambda x: formatear_hora_madrid(x).split(" ")[-1]
-                )
-
-                df_freq_agg = (
-                    df_frecuencias.groupby(
-                        ["line", "tipo_dia", "hora"], as_index=False
-                    )["headway_min"]
-                    .median()
-                )
-                df_ten = df_ten.merge(
-                    df_freq_agg, on=["line", "tipo_dia", "hora"], how="left"
-                ).merge(
-                    df_paradas[["stop_id", "stop_name"]],
-                    on="stop_id",
-                    how="left",
-                )
-                df_ten["exceso_min"] = (
-                    df_ten["espera_media_min"] - df_ten["headway_min"]
-                ).round(1)
-
-                df_anom = df_ten.dropna(subset=["headway_min"]).copy()
-                df_anom = df_anom.sort_values("exceso_min", ascending=False)
-
-                if df_anom.empty:
-                    st.info(
-                        "Las líneas capturadas hoy funcionan por horario fijo "
-                        "sin frecuencia regular definida en frequencies.txt."
+                    ctx_list = df_ten["ultima_captura_utc"].apply(
+                        extraer_contexto_madrid
                     )
-                else:
-                    def etiquetar_semaforo(exc: float) -> str:
-                        if exc >= 10:
-                            return "🔴 Alta (+10 min)"
-                        if exc >= 4:
-                            return "🟠 Moderada (+4 a +10 min)"
-                        return "🟢 En rango habitual"
+                    df_ten["tipo_dia"] = [c[0] for c in ctx_list]
+                    df_ten["hora"] = [c[1] for c in ctx_list]
 
-                    df_anom["Estado"] = df_anom["exceso_min"].apply(
-                        etiquetar_semaforo
+                    df_freq_agg = (
+                        df_frecuencias.groupby(
+                            ["line", "tipo_dia", "hora"], as_index=False
+                        )["headway_min"]
+                        .median()
                     )
-                    df_anom["Parada"] = (
-                        df_anom["stop_id"]
-                        + " — "
-                        + df_anom["stop_name"].fillna("Parada EMT")
+                    df_ten = df_ten.merge(
+                        df_freq_agg, on=["line", "tipo_dia", "hora"], how="left"
+                    ).merge(
+                        df_paradas[["stop_id", "stop_name"]],
+                        on="stop_id",
+                        how="left",
                     )
-                    vista_ten = df_anom.head(25)[
-                        [
-                            "Estado",
-                            "line",
-                            "Parada",
-                            "destination",
-                            "headway_min",
-                            "espera_media_min",
-                            "exceso_min",
-                            "espera_max_min",
-                            "hora_txt",
-                        ]
+                    df_ten["exceso_min"] = (
+                        df_ten["espera_media_min"] - df_ten["headway_min"]
+                    ).round(1)
+
+                    df_anom = df_ten.dropna(subset=["headway_min"]).copy()
+                    if not df_anom.empty:
+                        def etiquetar_semaforo(exc: float) -> str:
+                            if exc >= 10:
+                                return "🔴 Alta (+10 min)"
+                            if exc >= 4:
+                                return "🟠 Moderada (+4 a +10 min)"
+                            return "🟢 En rango habitual"
+
+                        df_anom["Estado"] = df_anom["exceso_min"].apply(etiquetar_semaforo)
+                        df_anom["Parada"] = (
+                            df_anom["stop_id"] + " — " + df_anom["stop_name"].fillna("Parada EMT")
+                        )
+                        st.markdown("##### 📌 Instantánea de Anomalías Registradas HOY")
+                        vista_ten = df_anom.sort_values("exceso_min", ascending=False).head(20)[
+                            [
+                                "Estado",
+                                "line",
+                                "Parada",
+                                "destination",
+                                "headway_min",
+                                "espera_media_min",
+                                "exceso_min",
+                            ]
+                        ].rename(
+                            columns={
+                                "line": "Línea",
+                                "destination": "Destino",
+                                "headway_min": "Frecuencia GTFS",
+                                "espera_media_min": "Espera media",
+                                "exceso_min": "Exceso (min)",
+                            }
+                        )
+                        st.dataframe(vista_ten, use_container_width=True, hide_index=True)
+
+                # 3. Ranking de recurrencia histórica si existe acumulado
+                if not df_historico_ten.empty:
+                    st.markdown("##### 📈 Ranking Histórico de Reincidencia (Paradas más tensionadas)")
+                    df_rec_agg = (
+                        df_historico_ten.groupby(
+                            ["line", "stop_id", "destination"], as_index=False
+                        )
+                        .agg(
+                            dias_afectados=("fecha_madrid", "nunique"),
+                            exceso_historico_medio=("exceso_min", "mean"),
+                        )
+                        .sort_values(["dias_afectados", "exceso_historico_medio"], ascending=[False, False])
+                        .merge(df_paradas[["stop_id", "stop_name"]], on="stop_id", how="left")
+                    )
+                    df_rec_agg["Parada"] = df_rec_agg["stop_id"] + " — " + df_rec_agg["stop_name"].fillna("Parada EMT")
+                    df_rec_agg["Exceso medio"] = df_rec_agg["exceso_historico_medio"].round(1)
+                    vista_rec = df_rec_agg.head(15)[
+                        ["dias_afectados", "line", "Parada", "destination", "Exceso medio"]
                     ].rename(
                         columns={
+                            "dias_afectados": "Días reincidentes",
                             "line": "Línea",
                             "destination": "Destino",
-                            "headway_min": "Frecuencia GTFS (min)",
-                            "espera_media_min": "Espera media (min)",
-                            "exceso_min": "Exceso (min)",
-                            "espera_max_min": "Espera máx (min)",
-                            "hora_txt": "Hora lectura",
                         }
                     )
-                    st.dataframe(
-                        vista_ten, use_container_width=True, hide_index=True
-                    )
+                    st.dataframe(vista_rec, use_container_width=True, hide_index=True)
         except Exception as exc:
             st.warning(f"No se pudo calcular el semáforo de tensión ({exc}).")
 
@@ -1111,28 +1135,42 @@ with tab_salud:
                 ),
             )
 
-            filas_hist = [
-                {
-                    "Versión": item.get("version_tag"),
-                    "Detectado (Madrid)": formatear_hora_madrid(
-                        item.get("detectado_utc")
-                    ),
-                    "Última revisión": formatear_hora_madrid(
-                        item.get("ultima_verificacion_utc")
-                        or item.get("detectado_utc")
-                    ),
-                    "Tablas modificadas": ", ".join(
-                        item.get("tablas_modificadas") or ()
-                    ),
-                    "Snapshot ZIP": item.get("ruta_zip", "Inicial"),
-                }
-                for item in reversed(historial_gtfs)
-            ]
-            st.dataframe(
-                pd.DataFrame(filas_hist),
-                use_container_width=True,
-                hide_index=True,
-            )
+            for item in reversed(historial_gtfs):
+                v_tag = item.get("version_tag", "N/D")
+                det = formatear_hora_madrid(item.get("detectado_utc"))
+                rev = formatear_hora_madrid(
+                    item.get("ultima_verificacion_utc") or item.get("detectado_utc")
+                )
+                tabs = ", ".join(item.get("tablas_modificadas") or ("Inicial",))
+                zip_ruta = item.get("ruta_zip", "Inicial")
+
+                with st.expander(f"📦 Versión GTFS: {v_tag} (Detectada: {det})"):
+                    col_h1, col_h2 = st.columns(2)
+                    col_h1.write(f"**Última revisión:** {rev}")
+                    col_h1.write(f"**Tablas modificadas:** {tabs}")
+                    col_h2.write(f"**Snapshot ZIP remoto:** `{zip_ruta}`")
+
+                    # Mostrar resumen de cambios (diff) si existe
+                    diff = item.get("resumen_cambios")
+                    if diff:
+                        st.markdown("**📊 Resumen de Cambios (Diff frente a versión previa):**")
+                        d1, d2, d3, d4 = st.columns(4)
+                        d1.metric("Total Paradas", f"{diff.get('total_paradas', 0):,}".replace(",", "."))
+                        d2.metric("Total Líneas", f"{diff.get('total_lineas', 0)}")
+                        d3.metric("Delta Viajes", f"{diff.get('viajes_delta', 0):+d}")
+                        d4.metric("Delta Frecuencias", f"{diff.get('frecuencias_delta', 0):+d}")
+
+                    # Mostrar cuarentenas auditadas si existen
+                    cuar = item.get("cuarentenas")
+                    if cuar:
+                        st.markdown("**🛡️ Auditoría de Cuarentenas e Incidencias en este ZIP:**")
+                        filas_c = [
+                            {"Tabla": tbl, "Registros afectados": info.get("cantidad", 0), "Motivo": info.get("motivo", "")}
+                            for tbl, info in cuar.items()
+                        ]
+                        st.dataframe(pd.DataFrame(filas_c), use_container_width=True, hide_index=True)
+                    elif v_tag != "20261118_inicial":
+                        st.caption("Sin incidencias de cuarentena registradas en esta versión.")
         else:
             st.info(
                 "Aún no hay registros en el historial. Aparecerán "

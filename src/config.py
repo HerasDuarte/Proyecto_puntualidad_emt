@@ -46,6 +46,7 @@ TABLAS_GTFS_OPERATIVAS = (
 # Repositorio Dataset privado en Hugging Face
 HF_DATASET_ID_DEFECTO = "HerasDuarte/emt-madrid-realtime-data"
 RUTA_HISTORIAL_GTFS_HF = "gtfs_snapshots/historial_gtfs_nube.json"
+RUTA_TENSION_DIARIA_HF = "analytics/resumen_tension_diaria.parquet"
 
 # Configuración de particionado y claves de deduplicación para datos en tiempo real
 CONFIG_TABLAS_REALTIME = {
