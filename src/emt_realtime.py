@@ -29,11 +29,12 @@ RUTA_ESTADO_CUOTA = Path("data/raw/realtime/estado_cuota_emt.json")
 LIMITE_PETICIONES_CICLO = 4500
 
 
-def construir_lista_paradas_estratificada(ruta_stops: Path = RUTA_STOPS_PROCESADO) -> list[str]:
+def construir_lista_paradas_estratificada(ruta_stops: Path | None = None) -> list[str]:
     """
     Construye la secuencia rotativa de stop_id intercalando de forma equilibrada
     paradas del Interior de la M-30 y de la Periferia Exterior.
     """
+    ruta_stops = ruta_stops or RUTA_STOPS_PROCESADO
     if not ruta_stops.exists():
         raise FileNotFoundError(f"Falta el fichero de paradas procesado: {ruta_stops}")
     df_stops = pd.read_csv(ruta_stops, dtype={"stop_id": str})
@@ -50,8 +51,9 @@ def construir_lista_paradas_estratificada(ruta_stops: Path = RUTA_STOPS_PROCESAD
     return secuencia
 
 
-def _cargar_estado_cuota(ruta_estado: Path = RUTA_ESTADO_CUOTA) -> dict:
+def _cargar_estado_cuota(ruta_estado: Path | None = None) -> dict:
     """Lee el estado persistente de cuota diaria UTC y puntero de rotación desde disco."""
+    ruta_estado = ruta_estado or RUTA_ESTADO_CUOTA
     ahora_utc = datetime.now(timezone.utc)
     hoy_utc_str = ahora_utc.strftime("%Y-%m-%d")
 
@@ -81,8 +83,9 @@ def _cargar_estado_cuota(ruta_estado: Path = RUTA_ESTADO_CUOTA) -> dict:
     }
 
 
-def _guardar_estado_cuota(estado: dict, ruta_estado: Path = RUTA_ESTADO_CUOTA) -> None:
+def _guardar_estado_cuota(estado: dict, ruta_estado: Path | None = None) -> None:
     """Persiste el estado actual de cuota y rotación en formato JSON."""
+    ruta_estado = ruta_estado or RUTA_ESTADO_CUOTA
     ruta_estado.parent.mkdir(parents=True, exist_ok=True)
     with open(ruta_estado, "w", encoding="utf-8") as f:
         json.dump(estado, f, indent=2, ensure_ascii=False)

@@ -768,6 +768,7 @@ def test_errores_red_meteorologia_y_autenticacion_emt(monkeypatch, tmp_path):
         "src.emt_realtime.requests.get", lambda *args, **kwargs: RespSinToken()
     )
     cliente = ClienteEMTRealtime(limite_ciclo=10)
+    assert cliente.paradas_rotativas == ["923"]
     with pytest.raises(RuntimeError, match="accessToken"):
         cliente._autenticar()
 
