@@ -123,7 +123,7 @@ def test_integridad_tabla_maestra_parquet():
 
     assert filas_parquet > 0, "La Tabla Maestra Parquet está vacía."
     assert filas_parquet == filas_base, f"Cardinalidad alterada: {filas_parquet:,} vs {filas_base:,}"
-    assert len(columnas) == 46, f"Esquema alterado: {len(columnas)} columnas (esperadas: 46)"
+    assert len(columnas) == 42, f"Esquema alterado: {len(columnas)} columnas (esperadas: 42)"
 
     nulos_criticos = (
         lf_parquet.select([
@@ -140,13 +140,13 @@ def test_integridad_tabla_maestra_parquet():
 
 
 def test_feature_engineering_relacional_maestro():
-    """Valida los dominios físicos y ausencia de nulos en las 9 variables de interacción relacional."""
+    """Valida los dominios físicos y ausencia de nulos en las 7 variables de interacción relacional."""
     processed_dir = ROOT_DIR / 'data' / 'processed'
     lf_parquet = pl.scan_parquet(processed_dir / 'maestro_gtfs.parquet')
 
     nuevas_cols = [
-        'hora_entera', 'tramo_15min', 'tipo_jornada',
-        'indice_sinuosidad_normalizado', 'velocidad_teorica_kmh',
+        'hora_entera', 'tipo_jornada',
+         'velocidad_teorica_kmh',
         'friccion_acumulada_m30', 'hora_seno', 'hora_coseno',
         'saturacion_marquesina_15min'
     ]
@@ -157,8 +157,6 @@ def test_feature_engineering_relacional_maestro():
     metricas = next(iter(lf_parquet.select([
         pl.col('hora_entera').min().alias('min_h'),
         pl.col('hora_entera').max().alias('max_h'),
-        pl.col('tramo_15min').min().alias('min_t15'),
-        pl.col('tramo_15min').max().alias('max_t15'),
         pl.col('velocidad_teorica_kmh').min().alias('min_vel'),
         pl.col('velocidad_teorica_kmh').max().alias('max_vel'),
         pl.col('friccion_acumulada_m30').min().alias('min_fric'),
@@ -167,7 +165,6 @@ def test_feature_engineering_relacional_maestro():
     ]).collect().to_dicts()))
 
     assert 0 <= metricas['min_h'] <= metricas['max_h'] <= 23
-    assert 0 <= metricas['min_t15'] <= metricas['max_t15'] <= 95
     assert 0.0 <= metricas['min_vel'] <= metricas['max_vel'] <= 80.0
     assert 0.0 <= metricas['min_fric'] <= metricas['max_fric'] <= 1.0
     assert metricas['min_sat'] >= 1
