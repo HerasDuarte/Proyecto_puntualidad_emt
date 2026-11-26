@@ -140,7 +140,7 @@ def test_integridad_tabla_maestra_parquet():
 
     assert filas_parquet > 0, "La Tabla Maestra Parquet está vacía."
     assert filas_parquet == filas_base, f"Cardinalidad alterada: {filas_parquet:,} vs {filas_base:,}"
-    assert len(columnas) == 47, f"Esquema alterado: {len(columnas)} columnas (esperadas: 47)"
+    assert len(columnas) == 48, f"Esquema alterado: {len(columnas)} columnas (esperadas: 48)"
 
     nulos_criticos = (
         lf_parquet.select([
