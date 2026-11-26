@@ -91,6 +91,28 @@ def limpiar_routes(df_routes, output_dir=None):
         df['regimen_horario'] = np.select(condiciones, categorias, default='Servicio Diurno Regular')
         df['regimen_horario'] = df['regimen_horario'].astype("string[pyarrow]")
 
+        # 7B. FEATURE ENGINEERING: Tipología comercial y circularidad de la línea
+        df['es_linea_circular'] = (
+            (df['cabecera_ruta'] == df['destino_ruta']).fillna(False)
+            | df['route_short_name'].str.startswith('C').fillna(False)
+            | df['route_long_name'].str.contains('CIRCULAR', na=False)
+        ).astype("boolean[pyarrow]")
+
+        cond_tipo = [
+            df['es_linea_circular'].to_numpy(dtype=bool),
+            df['route_short_name'].str.startswith('SE').fillna(False).to_numpy(dtype=bool),
+            (
+                df['route_short_name'].str.match(r'^E\d+$').fillna(False)
+                | (df['route_short_name'] == '203').fillna(False)
+                | df['route_long_name'].str.contains('EXPRES|EXPRÉS|AEROPUERTO', na=False)
+            ).to_numpy(dtype=bool),
+            df['route_short_name'].isin(['A', 'F', 'G', 'H', 'U']).fillna(False).to_numpy(dtype=bool),
+            df['route_short_name'].str.startswith('N').fillna(False).to_numpy(dtype=bool),
+        ]
+        cats_tipo = ['Circular', 'Especial', 'Exprés', 'Universitario', 'Nocturno']
+        df['tipo_servicio_emt'] = np.select(cond_tipo, cats_tipo, default='Regular')
+        df['tipo_servicio_emt'] = df['tipo_servicio_emt'].astype("string[pyarrow]")
+
     # 8. MÁSCARAS DE CONTROL DE CALIDAD ESTRICTO EN TIEMPO DE COMPILACIÓN
     mascara_nulos = df[['route_id', 'route_short_name', 'cabecera_ruta', 'destino_ruta', 'regimen_horario']].isna().any(axis=1)
 
@@ -160,6 +182,22 @@ def limpiar_stops(df_stops, output_dir=None):
             df['stop_name']
             .apply(extraer_calle_principal)
             .astype("string[pyarrow]")
+        )
+
+    # 4B. FEATURE ENGINEERING GEODÉSICO: Distancia al Km 0 (Puerta del Sol)
+    if 'stop_lat' in df.columns and 'stop_lon' in df.columns:
+        df['distancia_centro_km0_m'] = pd.Series(
+            np.round(
+                calcular_distancia_haversine(
+                    40.4168,
+                    -3.7038,
+                    df['stop_lat'].to_numpy(dtype=float),
+                    df['stop_lon'].to_numpy(dtype=float),
+                ),
+                1,
+            ),
+            index=df.index,
+            dtype="float32[pyarrow]",
         )
 
     # 5. INTERSECCIÓN GEOESPACIAL: Algoritmo de contención espacial dinámico (Interior M-30)

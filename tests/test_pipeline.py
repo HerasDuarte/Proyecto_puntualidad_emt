@@ -19,7 +19,7 @@ import scripts.generar_catalogo_dashboard as gen_cat
 import scripts.sincronizar_desde_cloudflare as sync_cf
 from scripts.sincronizar_desde_cloudflare import _parsear_xml_trafico_gzip
 from src.emt_realtime import ClienteEMTRealtime, _cargar_estado_cuota, construir_lista_paradas_estratificada
-from src.limpieza import limpiar_frequencies, limpiar_routes
+from src.limpieza import limpiar_frequencies, limpiar_routes, limpiar_stops
 from src.meteorologia import obtener_meteorologia_actual
 from src.sensores_trafico import sanear_xml_madrid, vincular_trafico_a_paradas
 from src.utils import (
@@ -58,6 +58,23 @@ def test_limpiar_routes_rescate_circulares_y_regimen():
     assert df_clean.loc[df_clean['route_short_name'] == 'C1', 'destino_ruta'].item() == 'CIRCULAR 1'
     assert df_clean.loc[df_clean['route_short_name'] == 'N1', 'regimen_horario'].item() == 'Servicio Nocturno (Búho)'
     assert df_clean.loc[df_clean['route_short_name'] == '1', 'regimen_horario'].item() == 'Servicio Diurno Regular'
+    assert bool(df_clean.loc[df_clean['route_short_name'] == 'C1', 'es_linea_circular'].item()) is True
+    assert bool(df_clean.loc[df_clean['route_short_name'] == '1', 'es_linea_circular'].item()) is False
+    assert df_clean.loc[df_clean['route_short_name'] == 'C1', 'tipo_servicio_emt'].item() == 'Circular'
+    assert df_clean.loc[df_clean['route_short_name'] == 'N1', 'tipo_servicio_emt'].item() == 'Nocturno'
+    assert df_clean.loc[df_clean['route_short_name'] == '1', 'tipo_servicio_emt'].item() == 'Regular'
+
+    # Verificar distancia_centro_km0_m en limpiar_stops (Sol vs Retiro)
+    df_stops_test = pd.DataFrame({
+        'stop_id': ['100', '200'],
+        'stop_code': ['100', '200'],
+        'stop_name': ['PUERTA DEL SOL', 'ALCALA - RETIRO'],
+        'stop_lat': [40.4168, 40.4200],
+        'stop_lon': [-3.7038, -3.6880],
+    })
+    df_stops_clean = limpiar_stops(df_stops_test)
+    assert float(df_stops_clean.loc[df_stops_clean['stop_id'] == '100', 'distancia_centro_km0_m'].item()) == pytest.approx(0.0, abs=1.0)
+    assert 1200.0 < float(df_stops_clean.loc[df_stops_clean['stop_id'] == '200', 'distancia_centro_km0_m'].item()) < 1600.0
 
 
 def test_limpiar_frequencies_cuarentena_y_features(tmp_path):
@@ -123,7 +140,7 @@ def test_integridad_tabla_maestra_parquet():
 
     assert filas_parquet > 0, "La Tabla Maestra Parquet está vacía."
     assert filas_parquet == filas_base, f"Cardinalidad alterada: {filas_parquet:,} vs {filas_base:,}"
-    assert len(columnas) == 42, f"Esquema alterado: {len(columnas)} columnas (esperadas: 42)"
+    assert len(columnas) == 47, f"Esquema alterado: {len(columnas)} columnas (esperadas: 47)"
 
     nulos_criticos = (
         lf_parquet.select([
@@ -148,7 +165,10 @@ def test_feature_engineering_relacional_maestro():
         'hora_entera', 'tipo_jornada',
          'velocidad_teorica_kmh',
         'friccion_acumulada_m30', 'hora_seno', 'hora_coseno',
-        'saturacion_marquesina_15min'
+        'saturacion_marquesina_15min',
+        'es_linea_circular', 'tipo_servicio_emt',
+        'distancia_centro_km0_m', 'hub_conectividad_parada',
+        'es_cabecera_terminal'
     ]
 
     nulos_nuevas = lf_parquet.select([pl.col(c).null_count() for c in nuevas_cols]).collect().row(0)
@@ -168,6 +188,12 @@ def test_feature_engineering_relacional_maestro():
     assert 0.0 <= metricas['min_vel'] <= metricas['max_vel'] <= 80.0
     assert 0.0 <= metricas['min_fric'] <= metricas['max_fric'] <= 1.0
     assert metricas['min_sat'] >= 1
+    extras = lf_parquet.select([
+        pl.col('hub_conectividad_parada').min().alias('min_hub'),
+        pl.col('distancia_centro_km0_m').min().alias('min_km0'),
+    ]).collect().to_dicts()[0]
+    assert extras['min_hub'] >= 1
+    assert extras['min_km0'] >= 0.0
 
     jornadas_unicas = set(lf_parquet.select(pl.col('tipo_jornada').unique()).collect()['tipo_jornada'].to_list())
     assert jornadas_unicas.issubset({'LABORABLE', 'VIERNES_VISPERA', 'FIN_DE_SEMANA'})
