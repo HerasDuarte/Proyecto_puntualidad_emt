@@ -1,6 +1,6 @@
 # 📘 Diccionario de datos de `maestro`
 
-A continuación se incluye el inventario oficial de las **47 variables** consolidadas en `maestro_gtfs.parquet`:
+A continuación se incluye el inventario oficial de las **48 variables** consolidadas en `maestro_gtfs.parquet`:
 
 | Bloque Origen | Variable | Tipo de Dato | Descripción Operativa y Regla de Negocio |
 | :--- | :--- | :--- | :--- |
@@ -22,6 +22,7 @@ A continuación se incluye el inventario oficial de las **47 variables** consoli
 | **Expediciones** (`trips`) | `block_id` | `String` | Identificador del turno físico del vehículo encadenado durante la jornada. |
 | **Expediciones** (`trips`) | `shape_id` | `String` | Identificador del trazado geométrico asignado a la expedición. |
 | **Expediciones** (`trips`) | `volumen_viajes_bloque` | `Int64` | Número total de expediciones encadenadas dentro del mismo turno (`block_id`). |
+| **Expediciones** (`trips`) | `indice_rotacion_bloque` | `Float32` | Posición relativa normalizada de la expedición dentro del turno físico del vehículo (`0.0` a `1.0`). |
 | **Líneas** (`routes`) | `route_short_name` | `String` | Denominación comercial pública de la línea (`1`, `27`, `C1`, `N1`, `SE721`). |
 | **Líneas** (`routes`) | `cabecera_ruta` | `String` | Nombre normalizado de la terminal de origen de la línea. |
 | **Líneas** (`routes`) | `destino_ruta` | `String` | Nombre normalizado de la terminal de destino de la línea. |

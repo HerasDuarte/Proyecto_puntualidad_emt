@@ -531,9 +531,6 @@ def limpiar_calendar_dates(df_calendar_dates, output_dir=None):
 
     df = df_calendar_dates.copy()
 
-    # 4. FEATURE ENGINEERING: es_festivo_o_vispera
-    # exception_type 1: Servicio añadido (Festivo especial), 2: Servicio eliminado (Festivo)
-    df['es_festivo_o_vispera'] = df['exception_type'].isin([1, 2]).astype("boolean[pyarrow]")
 
     # 1. Control de Duplicados en Bruto (Filas 100% idénticas)
     total_duplicados = df.duplicated().sum()
@@ -750,10 +747,6 @@ def limpiar_frequencies(df_frequencies, df_trips_clean, output_dir=None):
             ((df_limpio["start_time_secs"] + df_limpio["end_time_secs"]) / 2.0) / 3600.0
         ).astype("float32[pyarrow]")
 
-        # FEATURE ENGINEERING AVANZADO: Densidad de Oferta Horaria
-        df_limpio["densidad_oferta_horaria"] = (
-            df_limpio["autobuses_por_hora"] * (df_limpio["duracion_franja_secs"] / 3600.0)
-        ).astype("float32[pyarrow]")
 
     # 7. Exportación defensiva de anomalías a cuarentena
     if len(df_cuarentena) > 0:

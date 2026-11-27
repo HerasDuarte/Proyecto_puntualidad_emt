@@ -41,7 +41,7 @@ El repositorio sigue una estructura modular de ingeniería de software que separ
     │   └── processed/
     │       ├── *_limpio.csv                 # 8 tablas GTFS saneadas
     │       ├── m30_oficial.geojson          # Polígono oficial de la circunvalación M-30
-    │       ├── maestro_gtfs.parquet         # Tabla Analítica Maestra consolidada (47 columnas)
+    │       ├── maestro_gtfs.parquet         # Tabla Analítica Maestra consolidada (48 columnas)
     │       ├── catalogo_dashboard/          # Catálogo Parquet optimizado (846 KB) para el dashboard
     │       ├── cuarentena/                  # Registros huérfanos aislados pendientes de reconciliación
     │       └── versiones_gtfs/              # Historial JSON y copias versionadas de maestro_gtfs
@@ -138,7 +138,7 @@ El pipeline de ingeniería procesa y valida **8 tablas relacionales** y las cons
     python -m scripts.pipeline_limpieza
     python -m scripts.construir_maestro_gtfs
 
-*(Valida y sanea las 8 tablas relacionales del catálogo GTFS oficial y las ensambla mediante Polars Lazy en el Golden Dataset estructural `data/processed/maestro_gtfs.parquet` de 47 columnas).*
+*(Valida y sanea las 8 tablas relacionales del catálogo GTFS oficial y las ensambla mediante Polars Lazy en el Golden Dataset estructural `data/processed/maestro_gtfs.parquet` de 48 columnas).*
 
 ### 3. Ejecución de la Ingesta en Tiempo Real y Sincronización Cloud
 
@@ -182,7 +182,7 @@ El pipeline de ingeniería procesa y valida **8 tablas relacionales** y las cons
 ## 🗺️ Hoja de Ruta (Roadmap)
 
 - [x] **Fase 1 — Auditoría Exploratoria (EDA GTFS):** Análisis forense, visualización corporativa, cartografía estática/interactiva (`reports/`) y diccionarios de datos de las 8 tablas GTFS (`notebooks/01` a `08`).
-- [x] **Fase 2 — Ingeniería de Datos Estructural y Tabla Maestra:** Pipeline híbrido (`PyArrow` + `Polars Lazy`), modularización DRY (`src/utils.py`), auditoría relacional (`09_EDA_maestro.ipynb`), generación de `maestro_gtfs.parquet` (47 columnas) y validación dinámica con `pytest`.
+- [x] **Fase 2 — Ingeniería de Datos Estructural y Tabla Maestra:** Pipeline híbrido (`PyArrow` + `Polars Lazy`), modularización DRY (`src/utils.py`), auditoría relacional (`09_EDA_maestro.ipynb`), generación de `maestro_gtfs.parquet` (48 columnas) y validación dinámica con `pytest`.
 - [x] **Fase 3A — Auditoría Espacial de Tráfico y Orquestación Serverless 24/7:** Ingesta XML del Ayuntamiento de Madrid (`10_EDA_sensores_trafico.ipynb`), motor espacial *IDW* (`src/sensores_trafico.py`), despliegue continuo en **Cloudflare Workers + D1** (`cloudflare_worker/`) y sincronizador seguro a Parquet (`scripts/sincronizar_desde_cloudflare.py`).
 - [ ] **Fase 3B — EDAs Dinámicos (`11_EDA_meteorologia.ipynb` y `12_EDA_llegadas_emt.ipynb`) y Modelo 1 (*Baseline GTFS*):** Auditoría de las capturas en vivo, cálculo de la variable objetivo (`retraso_real_seg`) contra `maestro_gtfs.parquet` y entrenamiento del primer modelo base.
 - [ ] **Fase 4 — Entrenamiento y Evaluación del Modelo 2 (*Contexto Vial*):** Acoplamiento temporal y espacial de las métricas de `src/sensores_trafico.py` sobre el conjunto experimental y medición de ganancia respecto al Modelo 1.

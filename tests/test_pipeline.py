@@ -19,7 +19,7 @@ import scripts.generar_catalogo_dashboard as gen_cat
 import scripts.sincronizar_desde_cloudflare as sync_cf
 from scripts.sincronizar_desde_cloudflare import _parsear_xml_trafico_gzip
 from src.emt_realtime import ClienteEMTRealtime, _cargar_estado_cuota, construir_lista_paradas_estratificada
-from src.limpieza import limpiar_frequencies, limpiar_routes, limpiar_stops
+from src.limpieza import limpiar_frequencies, limpiar_routes, limpiar_stops, limpiar_trips
 from src.meteorologia import obtener_meteorologia_actual
 from src.sensores_trafico import sanear_xml_madrid, vincular_trafico_a_paradas
 from src.utils import (
@@ -927,17 +927,24 @@ def test_unitario_features_trafico_utils():
     assert regimenes[3] == "Fluido"                  # Carga baja (<40), intensidad alta (>=200)
 
 
-def test_logica_negocio_nuevas_features():
-    """Valida la lógica de negocio de las nuevas variables de Feature Engineering."""
-    # 1. Festivos y Vísperas
-    df_cal = pd.DataFrame({'exception_type': [1, 2, 0]})
-    df_cal['es_festivo_o_vispera'] = df_cal['exception_type'].isin([1, 2])
-    assert bool(df_cal.loc[0, 'es_festivo_o_vispera']) is True
-    assert bool(df_cal.loc[1, 'es_festivo_o_vispera']) is True
-    assert bool(df_cal.loc[2, 'es_festivo_o_vispera']) is False
+def test_logica_negocio_nuevas_features(tmp_path):
+    """Valida volumen_viajes_bloque e indice_rotacion_bloque directamente en limpiar_trips."""
+    df_routes = pd.DataFrame({"route_id": ["001"]})
+    df_cal = pd.DataFrame({"service_id": ["LA"]})
+    df_shapes = pd.DataFrame({"shape_id": ["001_A"]})
+    df_trips = pd.DataFrame(
+        {
+            "route_id": ["1", "1", "1"],
+            "service_id": ["LA", "LA", "LA"],
+            "trip_id": ["T1", "T2", "T3"],
+            "trip_headsign": ["SOL", "SOL", "SOL"],
+            "direction_id": [0, 0, 0],
+            "block_id": ["B1", "B1", "B2"],
+            "shape_id": ["001_A", "001_A", "001_A"],
+        }
+    )
 
-    # 2. Conectividad (ficticia para test)
-    df_stops = pd.DataFrame({'stop_id': ['1', '1', '2'], 'route_id': ['A', 'B', 'A']})
-    conectividad = df_stops.groupby('stop_id')['route_id'].nunique()
-    assert conectividad['1'] == 2
-    assert conectividad['2'] == 1
+    df_res = limpiar_trips(df_trips, df_routes, df_cal, df_shapes, output_dir=tmp_path)
+    assert len(df_res) == 3
+    assert list(df_res["volumen_viajes_bloque"]) == [2, 2, 1]
+    assert list(df_res["indice_rotacion_bloque"]) == pytest.approx([0.5, 1.0, 1.0])
