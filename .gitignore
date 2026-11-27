@@ -51,3 +51,5 @@ data/processed/catalogo_dashboard/
 .streamlit/secrets.toml
 
 *.pem
+
+.clinerules

@@ -2,7 +2,7 @@
 Módulo de Ingesta en Tiempo Real de Llegadas EMT Madrid (API MobilityLabs v2).
 Implementa barrido rotativo estratificado (Round-Robin) sobre las 4.928 paradas EMT,
 renovación automática de token y control autónomo de cuota diaria sincronizado con
-el reinicio UTC (00:00 UTC / 01:00 CET) con tope de seguridad de 4.500 peticiones/día.
+el reinicio UTC (00:00 UTC / 01:00 CET) con tope de seguridad de 4.800 peticiones/día.
 """
 
 import json
@@ -26,7 +26,7 @@ BASE_URL_EMT = "https://" + "openapi." + "emtmadrid.es/v2"
 RUTA_STOPS_PROCESADO = Path("data/processed/stops_limpio.csv")
 RUTA_ESTADO_CUOTA = Path("data/raw/realtime/estado_cuota_emt.json")
 
-LIMITE_PETICIONES_CICLO = 4500
+LIMITE_PETICIONES_CICLO = 4800
 
 
 def construir_lista_paradas_estratificada(ruta_stops: Path | None = None) -> list[str]:
@@ -169,7 +169,7 @@ class ClienteEMTRealtime:
 
     def ejecutar_lote_rotativo(self, tamano_lote: int = 25) -> Tuple[pd.DataFrame, str]:
         """
-        Ejecuta un lote rotativo de consultas respetando el tope diario de 4.500
+        Ejecuta un lote rotativo de consultas respetando el tope diario de 4.800
         peticiones y reiniciando automáticamente al cambiar de día UTC (00:01 UTC).
         Retorna (DataFrame con llegadas capturadas, estado_operativo).
         """

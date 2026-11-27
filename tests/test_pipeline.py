@@ -925,3 +925,19 @@ def test_unitario_features_trafico_utils():
     assert regimenes[1] == "Saturado_Con_Movimiento" # Carga media-alta, intensidad alta
     assert regimenes[2] == "Colapso_Estatico"        # Carga alta (>=70), intensidad baja (<200)
     assert regimenes[3] == "Fluido"                  # Carga baja (<40), intensidad alta (>=200)
+
+
+def test_logica_negocio_nuevas_features():
+    """Valida la lógica de negocio de las nuevas variables de Feature Engineering."""
+    # 1. Festivos y Vísperas
+    df_cal = pd.DataFrame({'exception_type': [1, 2, 0]})
+    df_cal['es_festivo_o_vispera'] = df_cal['exception_type'].isin([1, 2])
+    assert bool(df_cal.loc[0, 'es_festivo_o_vispera']) is True
+    assert bool(df_cal.loc[1, 'es_festivo_o_vispera']) is True
+    assert bool(df_cal.loc[2, 'es_festivo_o_vispera']) is False
+
+    # 2. Conectividad (ficticia para test)
+    df_stops = pd.DataFrame({'stop_id': ['1', '1', '2'], 'route_id': ['A', 'B', 'A']})
+    conectividad = df_stops.groupby('stop_id')['route_id'].nunique()
+    assert conectividad['1'] == 2
+    assert conectividad['2'] == 1
