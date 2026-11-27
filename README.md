@@ -67,7 +67,7 @@ El repositorio sigue una estructura modular de ingeniería de software que separ
     │   ├── archivar_nube_a_hf.py            # Volcado transaccional D1 -> Hugging Face + snapshots GTFS
     │   └── descargar_historico_hf.py        # Descarga incremental desde Hugging Face para modelado
     ├── tests/
-    │   └── test_pipeline.py                 # Suite de 26 pruebas unitarias y de integración (pytest)
+    │   └── test_pipeline.py                 # Suite de 28 pruebas unitarias y de integración (pytest)
     ├── pyproject.toml                       # Empaquetado PEP 621 y configuración de pytest / ruff
     ├── requirements.txt                     # Dependencias de producción multiplataforma
     ├── requirements-dev.txt                 # Dependencias de testing, cartografía, notebooks y ML
@@ -157,7 +157,7 @@ El pipeline de ingeniería procesa y valida **8 tablas relacionales** y las cons
 
     pytest
 
-*(Lanza la suite completa de 26 pruebas unitarias y de integración definida en `tests/test_pipeline.py` aplicando la configuración estándar de `pyproject.toml`).*
+*(Lanza la suite completa de 28 pruebas unitarias y de integración definida en `tests/test_pipeline.py` aplicando la configuración estándar de `pyproject.toml`).*
 
 
 ---
